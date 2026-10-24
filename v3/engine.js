@@ -131,18 +131,23 @@
     var seed = (opts && opts.seed) || 1337;
     var rng = mulberry32(seed);
     var econ = B.econ[input.productType] || B.econ.b2b_saas;
+    // Acquisition cannot invent customers beyond the serviceable market. Keep a
+    // book of business that is already larger than SAM, but do not grow past it.
+    var samCap = marketSizing(input, B).samCustomers;
+    var customerCap = Math.max(samCap, input.existingCustomers || 0);
     var channels = channelModel(input, B).filter(function (c) { return c.kind !== 'viral'; });
     var viral = null;
     input.channels.forEach(function (chId) {
       if (B.channels[chId] && B.channels[chId].kind === 'viral') viral = B.channels[chId];
     });
-    var endings = [], mrrEndings = [], minCash = [];
+    var endings = [], mrrEndings = [], minCash = [], cashEndings = [];
+    var cashOuts = 0;
     var hitCust = {}, hitMRR = {};
     var milestonesC = [100, 1000, 10000], milestonesM = [1000, 10000];
     var p50path = [];
     var allPaths = [];
     for (var s = 0; s < N; s++) {
-      var customers = input.existingCustomers || 0;
+      var customers = Math.min(input.existingCustomers || 0, customerCap);
       var churn = lognormSample(rng, econ.churnMonthly, 0.35);
       var channelRates = channels.map(function (c) {
         var rate = c.customersPerMonth * lognormSample(rng, 1, 0.45);
@@ -151,6 +156,7 @@
       var k = viral ? viral.kFactor * lognormSample(rng, 1, 0.5) : 0;
       var cash = input.startingCash || 0;
       var minC = cash;
+      var wentNegative = false;
       var path = [];
       var hitC = {}, hitM = {};
       for (var m = 1; m <= months; m++) {
@@ -161,12 +167,14 @@
         });
         // viral loop: each customer brings k new customers per cycle (~monthly cycle)
         newC += customers * k * 0.25;
+        var room = Math.max(0, customerCap - customers);
+        if (newC > room) newC = room;
         var churned = customers * churn;
-        customers = Math.max(0, customers + newC - churned);
+        customers = Math.max(0, Math.min(customerCap, customers + newC - churned));
         var rev = customers * input.price;
-        var spend = input.monthlyBudget + customers * input.price * (1 - econ.grossMargin);
         cash += rev * econ.grossMargin - input.monthlyBudget;
         if (cash < minC) minC = cash;
+        if (cash < 0) wentNegative = true;
         path.push(customers);
         for (var ci = 0; ci < milestonesC.length; ci++) {
           if (customers >= milestonesC[ci]) hitC[milestonesC[ci]] = true;
@@ -178,6 +186,8 @@
       endings.push(customers);
       mrrEndings.push(customers * input.price);
       minCash.push(minC);
+      cashEndings.push(cash);
+      if (wentNegative) cashOuts += 1;
       allPaths.push(path);
       for (var k2 in hitC) { hitCust[k2] = (hitCust[k2] || 0) + 1; }
       for (var k3 in hitM) { hitMRR[k3] = (hitMRR[k3] || 0) + 1; }
@@ -185,6 +195,7 @@
     endings.sort(function (a, b) { return a - b; });
     mrrEndings.sort(function (a, b) { return a - b; });
     minCash.sort(function (a, b) { return a - b; });
+    cashEndings.sort(function (a, b) { return a - b; });
     // fan chart: per month percentiles across paths
     var fan = [];
     for (var m2 = 0; m2 < months; m2++) {
@@ -199,6 +210,10 @@
       customersEnd: { p10: percentile(endings, 10), p50: percentile(endings, 50), p90: percentile(endings, 90) },
       mrrEnd: { p10: percentile(mrrEndings, 10), p50: percentile(mrrEndings, 50), p90: percentile(mrrEndings, 90) },
       minCashP10: percentile(minCash, 10),
+      minCash: { p10: percentile(minCash, 10), p50: percentile(minCash, 50) },
+      cashEnd: { p10: percentile(cashEndings, 10), p50: percentile(cashEndings, 50), p90: percentile(cashEndings, 90) },
+      probCashOut: cashOuts / N,
+      customerCap: customerCap,
       probCustomers: probC, probMRR: probM, fan: fan
     };
   }
@@ -221,9 +236,9 @@
     // SOM yr1 = min(model-driven p50 customers end of yr1, capture cap)
     var somModel = Math.round(sim.customersEnd.p50);
     var somCap = Math.round(sizing.samCustomers * sizing.captureCapYr1);
-    sizing.somCustomersYr1 = Math.min(somModel, Math.max(somModel, Math.min(somCap, somModel))); // model-driven, cap documented
-    sizing.somCustomersYr1 = somModel;
-    sizing.somRevenueYr1 = Math.round(somModel * input.price * 12);
+    // Year-1 SOM is the simulated median, and it cannot exceed the serviceable market.
+    sizing.somCustomersYr1 = Math.min(somModel, sizing.samCustomers);
+    sizing.somRevenueYr1 = Math.round(sizing.somCustomersYr1 * input.price * 12);
     sizing.somCaptureCeiling = somCap;
     return { sizing: sizing, channels: channels, cac: cac, econ: econ, sim: sim };
   }

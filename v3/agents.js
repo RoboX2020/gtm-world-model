@@ -28,7 +28,8 @@
     var usr = 'Product: ' + input.productName + ' - ' + (input.description || ('a ' + input.productTypeLabel + ' product')) +
       '\nPrice: $' + input.price + '/mo\nTarget: ' + input.anchorLabel + ' in ' + input.geoLabel;
     return post('/api/agent-step', { system: sys, user: usr, maxOutputTokens: 1024 }).then(function (j) {
-      var p = j.result;
+      var p = j && j.result;
+      if (!p || typeof p !== 'object') throw new Error('orchestrator returned an unreadable plan');
       p.queries = (p.queries || []).slice(0, 3);
       if (!p.queries.length) p.queries = [input.productName, input.productTypeLabel + ' ' + input.anchorLabel, (input.description || input.productName).slice(0, 60)];
       orch.log('orchestrator', 'Plan: 3 research queries for the social-listening agent:');
@@ -117,7 +118,7 @@
     try {
       var R = Engine.runAll(input, BENCH, { n: 3000, months: 12, seed: (Date.now() % 100000) });
       orch.done('quant-analyst', 'Baseline: median ' + Math.round(R.sim.customersEnd.p50).toLocaleString('en-US') +
-        ' customers, ' + Math.round(R.sim.mrrEnd.p50).toLocaleString('en-US') + ' MRR at month 12', R);
+        ' customers, $' + Math.round(R.sim.mrrEnd.p50).toLocaleString('en-US') + ' MRR at month 12', R);
       return R;
     } catch (e) {
       orch.fail('quant-analyst', 'Quant baseline failed: ' + e.message);
@@ -204,7 +205,8 @@
       orch.done('strategist', 'Strategy synthesized from all agent findings', j.strategy);
       return j.strategy;
     }).catch(function (e) {
-      orch.fail('strategist', 'Strategist failed: ' + e.message);
+      orch.log('strategist', 'Strategy model unreachable (' + (e.message || 'unknown') + '). Using the local plan built from the computed numbers.');
+      orch.done('strategist', 'Local plan standing in for the model');
       return null;
     });
   }
@@ -287,7 +289,18 @@
       return null;
     });
     function summarizeRows(rows) {
-      items = rows.slice(0, 25);
+      items = (rows || []).slice(0, 25);
+      if (!items.length) {
+        var empty = {
+          readiness: 'unreadable from this source',
+          summary: 'The pull returned no records, so there is no demand verdict from this source.',
+          pain_points: [], demand_signals: [], sentiment: { positive: 0, neutral: 0, negative: 0 },
+          evidence_note: '0 records from ' + renderLabel + '.',
+          sourcesUsed: ['Bright Data ' + renderLabel + ' (live, empty)']
+        };
+        orch.done(agentId, orch.agents[agentId].name + ': 0 records - no verdict from an empty pull', empty);
+        return empty;
+      }
       orch.log(agentId, items.length + ' real records pulled - summarizing with Gemini...');
       return post('/api/agent-step', {
         system: summarizeSys,

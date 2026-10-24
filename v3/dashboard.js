@@ -9,16 +9,19 @@
     if (Math.abs(n) >= 1e4) return (n / 1e3).toFixed(1) + 'k';
     return Math.round(n).toLocaleString('en-US');
   };
-  var money = function (n) { return n == null || isNaN(n) ? '-' : '$' + fmt(n); };
+  var money = function (n) {
+    if (n == null || isNaN(n)) return '-';
+    return (n < 0 ? '-' : '') + '$' + fmt(Math.abs(n));
+  };
   var esc = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
 
   var AGENT_DEFS = [
     ['orchestrator', 'Orchestrator', 'delegates and synthesizes'],
     ['social-listening', 'Social listening', 'live community data'],
-    ['reddit-agent', 'Reddit agent', 'Bright Data - wiring next'],
-    ['linkedin-agent', 'LinkedIn/Instagram', 'Bright Data - wiring next'],
-    ['g2-agent', 'Reviews (G2)', 'Bright Data - wiring next'],
-    ['trends-agent', 'Google Trends', 'Bright Data - wiring next'],
+    ['reddit-agent', 'Reddit agent', 'Bright Data keyword search'],
+    ['linkedin-agent', 'LinkedIn/Instagram', 'needs profile or company URLs'],
+    ['g2-agent', 'Reviews (G2)', 'needs G2 review URLs'],
+    ['trends-agent', 'Google Trends', 'SERP zone not created'],
     ['quant-analyst', 'Quant analyst', 'benchmark baseline'],
     ['consumer-panel', 'Consumer panel', '48 LLM agents'],
     ['strategist', 'Strategist', 'final synthesis']
@@ -47,7 +50,13 @@
     chips.appendChild(c);
   });
   anchor.onchange = function () { $('anchor-count-wrap').style.display = anchor.value === 'custom' ? 'block' : 'none'; };
-  $('inputs-btn').onclick = function () { $('drawer').classList.toggle('open'); };
+  function placeDrawer() {
+    var h = document.querySelector('header').offsetHeight;
+    $('drawer').style.top = h + 'px';
+    $('drawer').style.maxHeight = 'calc(100vh - ' + h + 'px)';
+  }
+  $('inputs-btn').onclick = function () { placeDrawer(); $('drawer').classList.toggle('open'); };
+  window.addEventListener('resize', function () { if ($('drawer').classList.contains('open')) placeDrawer(); });
 
   // ---- rail ----
   function renderRail() {
@@ -65,9 +74,10 @@
   var streamCleared = false;
   function addLine(evt) {
     if (!streamCleared) { $('stream').innerHTML = ''; streamCleared = true; }
+    if (!evt || !evt.text) return;
     var t = new Date();
     var ts = ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) + ':' + ('0' + t.getSeconds()).slice(-2);
-    var name = orch && orch.agents[evt.agent] ? orch.agents[evt.agent].name : evt.agent;
+    var name = (orch && orch.agents[evt.agent] && orch.agents[evt.agent].name) || evt.agent || 'system';
     var div = document.createElement('div');
     div.className = 'sline' + (evt.status === 'error' ? ' err' : '');
     div.dataset.agent = evt.agent;
@@ -171,6 +181,17 @@
     switchTab('signals');
   }
 
+  function renderPanelLive(series) {
+    var last = series[series.length - 1];
+    if (!last) return;
+    var h = '<div class="card"><span class="pill">REAL AI AGENTS - IN PROGRESS</span>' +
+      '<p class="note">Month ' + last.round + ': ' + last.customers + ' customers, ' + last.aware + ' aware, +' + last.new + ' new, -' + last.churned + ' churned.</p></div>' +
+      '<div class="card"><canvas id="sim-chart-live" width="700" height="260"></canvas></div>';
+    $('p-panel').innerHTML = h;
+    var canvas = $('sim-chart-live');
+    if (canvas) drawSimChart(canvas, series, Math.max(last.aware || 0, 48));
+  }
+
   function renderPanelMetrics(res) {
     var last = res.series[res.series.length - 1];
     var h = '<div class="card"><span class="pill">REAL AI AGENTS - GEMINI</span>' +
@@ -191,8 +212,58 @@
     drawSimChart($('sim-chart-final'), res.series, res.panel);
   }
 
-  function renderStrategy(s, grounded) {
-    var h = '<div class="card"><span class="pill">AI STRATEGY - GEMINI' + (grounded ? ' + AGENT SIM + SIGNALS' : '') + '</span>';
+  function localStrategy(input, R) {
+    if (!R) {
+      return {
+        positioning: input.productName + ' for ' + input.anchorLabel.toLowerCase() + (input.description ? ': ' + input.description : '.'),
+        verdict: 'The benchmark baseline did not finish, so this is a holding plan rather than a recommendation to scale.',
+        channels: [{ name: 'One channel only', why: 'There is no CAC ranking without the baseline.', steps: ['Rerun the world model', 'Do not open a second channel yet', 'Keep spend flat until CAC is known'] }],
+        pricing: 'Leave price at $' + input.price + '/mo until LTV and payback are on screen.',
+        plan90: ['Days 1-30: rerun and confirm the baseline.', 'Days 31-60: do not scale blind.', 'Days 61-90: revisit with CAC, LTV and the panel.'],
+        risks: ['No quantitative baseline on this run.', 'The strategy model was unreachable.', 'Earlier panels, if any, are the only evidence.'],
+        contrarian: 'Wait for the numbers. A narrative without the baseline is a slide.'
+      };
+    }
+    var econ = BENCH.econ[input.productType];
+    var best = R.channels.filter(function (c) { return c.cac; }).sort(function (a, b) { return a.cac - b.cac; });
+    var verdict = R.econ.ltvCac == null
+      ? 'No paid CAC in this mix, so LTV/CAC is not defined. Median year-1 book is ' + fmt(R.sim.customersEnd.p50) + ' customers.'
+      : (R.econ.ltvCac >= 3
+        ? 'Unit economics clear the 3.0 LTV/CAC bar. The median year-1 book is ' + fmt(R.sim.customersEnd.p50) + ' customers.'
+        : 'Unit economics are below the 3.0 LTV/CAC bar. Fix price, churn or channel mix before scaling.');
+    var chan = best.slice(0, 3).map(function (c) {
+      return {
+        name: c.name,
+        why: 'Lowest modeled CAC in the mix at ' + money(c.cac) + ', about ' + c.customersPerMonth.toFixed(1) + ' customers/mo on ' + money(c.spend) + '.',
+        steps: ['Start near ' + money(c.spend) + '/mo', 'Hold it to the benchmark conversion rate', 'Cut it if CAC is above ' + money(c.cac * 1.5) + ' after 4 weeks']
+      };
+    });
+    if (!chan.length) {
+      chan = [{ name: 'No paid CAC yet', why: 'The selected mix has no paid customers to rank.', steps: ['Add one paid or outbound channel', 'Or fund content long enough to exit the ramp', 'Do not read a zero CAC as free growth'] }];
+    }
+    var cashLine = 'Median cash at month 12 is ' + money(R.sim.cashEnd.p50) + ' and ' + Math.round(R.sim.probCashOut * 100) + '% of futures go cash-negative.';
+    return {
+      positioning: input.productName + ' for ' + input.anchorLabel.toLowerCase() + ': ' + (input.description || ('a ' + econ.label + ' product')) + '. Blended CAC ' + money(R.cac || 0) + ', payback ' + (R.econ.paybackMonths ? R.econ.paybackMonths.toFixed(1) + ' months' : 'n/a') + '.',
+      verdict: verdict + ' ' + cashLine,
+      channels: chan,
+      pricing: 'At ' + money(input.price) + '/mo, LTV is ' + money(R.econ.ltv) + ' over a modeled ' + R.econ.lifetimeMonths + '-month life. ' + (R.econ.ltvCac != null && R.econ.ltvCac < 3 ? 'Churn is the binding constraint before more spend.' : 'Price can be tested upward once the cheapest channel holds its CAC.'),
+      plan90: [
+        'Days 1-30: prove ' + (best[0] ? best[0].name : 'one channel') + ' near its benchmark CAC.',
+        'Days 31-60: get monthly churn under ' + Math.round(econ.churnMonthly * 100) + '%.',
+        'Days 61-90: scale the winner and only then open ' + (best[1] ? best[1].name : 'a second channel') + '.'
+      ],
+      risks: [
+        'Churn above ' + Math.round(econ.churnMonthly * 100) + '%/mo erases LTV.',
+        cashLine,
+        'The year-1 book cannot exceed SAM (' + fmt(R.sizing.samCustomers) + ' customers).'
+      ],
+      contrarian: 'Do not launch on every channel. Depth on ' + (best[0] ? best[0].name : 'the cheapest channel') + ' beats breadth at this budget.'
+    };
+  }
+
+  function renderStrategy(s, grounded, sourceLabel) {
+    var label = sourceLabel || ('AI STRATEGY - GEMINI' + (grounded ? ' + AGENT SIM + SIGNALS' : ''));
+    var h = '<div class="card"><span class="pill' + (sourceLabel ? ' local' : '') + '">' + esc(label) + '</span>';
     h += '<div class="ai-sec"><h3>Positioning</h3><p>' + esc(s.positioning) + '</p></div>';
     h += '<div class="ai-sec"><h3>Verdict</h3><p>' + esc(s.verdict) + '</p></div>';
     h += '<div class="ai-sec"><h3>Channel plays</h3>' + (s.channels || []).map(function (c, i) {
@@ -212,8 +283,10 @@
       '<div class="metric"><div class="v">' + money(R.sim.mrrEnd.p50) + '</div><div class="k">MRR, month 12 (median)</div></div>' +
       '<div class="metric"><div class="v">' + (R.cac ? money(R.cac) : '-') + '</div><div class="k">blended CAC</div></div>' +
       '<div class="metric"><div class="v">' + (R.econ.ltvCac ? R.econ.ltvCac.toFixed(1) : '-') + '</div><div class="k">LTV / CAC</div></div>' +
+      '<div class="metric"><div class="v">' + money(R.sim.cashEnd.p50) + '</div><div class="k">cash at month 12 (median)</div></div>' +
+      '<div class="metric"><div class="v">' + Math.round((R.sim.probCashOut || 0) * 100) + '%</div><div class="k">futures that run out of cash</div></div>' +
       '</div>' +
-      '<p class="note">TAM ' + fmt(R.sizing.tamCustomers) + ' customers (' + money(R.sizing.tamRevenueYr) + '/yr) - SAM ' + fmt(R.sizing.samCustomers) + ' - SOM yr-1 median ' + fmt(R.sizing.somCustomersYr1) + '. 3,000 simulated futures, parameters sampled around cited public benchmarks (see v1 app for full source list).</p></div>' +
+      '<p class="note">TAM ' + fmt(R.sizing.tamCustomers) + ' customers (' + money(R.sizing.tamRevenueYr) + '/yr) - SAM ' + fmt(R.sizing.samCustomers) + ' - SOM yr-1 median ' + fmt(R.sizing.somCustomersYr1) + '. Customers in the simulation cannot exceed SAM. Lowest cash (P10) ' + money(R.sim.minCashP10) + '. 3,000 simulated futures, parameters sampled around cited public benchmarks.</p></div>' +
       '<div class="card"><canvas id="fan-final" width="700" height="280"></canvas></div>';
     $('p-baseline').innerHTML = h;
     drawFan($('fan-final'), R.sim.fan);
@@ -265,6 +338,12 @@
     $('drawer').classList.remove('open');
     input.monthlyExposures = monthlyExposures(input);
     lastInput = input; simSeries = [];
+    streamCleared = true;
+    $('stream').innerHTML = '';
+    $('p-signals').innerHTML = '<div class="card"><h3>Market signals</h3><p class="note">Social listening is running.</p></div>';
+    $('p-panel').innerHTML = '<div class="card"><h3>Consumer panel simulation</h3><p class="note">The panel starts after market signals.</p></div>';
+    $('p-strategy').innerHTML = '<div class="card"><h3>Strategy</h3><p class="note">The strategist runs last.</p></div>';
+    $('p-baseline').innerHTML = '<div class="card"><h3>Benchmark baseline</h3><p class="note">Computing the Monte Carlo baseline.</p></div>';
 
     orch = new Orchestrator(function (evt) { addLine(evt); renderRail(); });
     AGENT_DEFS.forEach(function (d) { orch.register(d[0], d[1], d[2]); });
@@ -295,11 +374,15 @@
         if (signals) renderSignals(signals);
         return Agents.consumerPanel(orch, input, signals, function (row) {
           simSeries.push(row);
+          renderPanelLive(simSeries);
         }).then(function (sim) {
           if (sim) { renderPanelMetrics(sim); switchTab('panel'); }
           return Agents.strategist(orch, input, R, sim, signals).then(function (s) {
             if (s) { renderStrategy(s, !!(sim || signals)); switchTab('strategy'); }
-            else { $('p-strategy').innerHTML = '<div class="card"><h3>Strategy</h3><p class="note">Strategy generation failed this run (see stream - usually the free-tier rate limit after the 14-call simulation). Re-run in a few minutes; all other agent findings above still stand.</p></div>'; }
+            else {
+              renderStrategy(localStrategy(input, R), false, 'LOCAL STRATEGY - AI OFFLINE');
+              switchTab('strategy');
+            }
             orch.log('orchestrator', 'Run complete. All agent findings are in the panels on the right.');
             running = false;
             $('run-btn').disabled = false; $('run-btn').textContent = 'Deploy agents';

@@ -59,6 +59,10 @@ td{padding:9px 6px;border-bottom:1px solid var(--line)}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:34px;background:transparent;padding:0;border:none}
 input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:var(--panel2)}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--orange);margin-top:-10px}
+input[type=range]::-moz-range-track{height:6px;border-radius:999px;background:var(--panel2);border:none}
+input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:var(--orange);border:none}
+select{background-image:linear-gradient(45deg,transparent 50%,var(--grey) 50%),linear-gradient(135deg,var(--grey) 50%,transparent 50%);background-position:calc(100% - 18px) calc(50% - 3px),calc(100% - 13px) calc(50% - 3px);background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:36px}
+@media (max-width:520px){.row2,.grid2{grid-template-columns:1fr}}
 details{margin:12px 0}
 summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--orange);padding:8px 0}
 .src{font-size:12px;color:var(--grey);margin:4px 0;word-break:break-all}
@@ -148,6 +152,7 @@ footer{color:var(--grey);font-size:12px;text-align:center;margin:30px 0 10px}
     <div class="metric"><div class="v" id="m-mrr">-</div><div class="k">Monthly revenue, month 12 (median)</div><div class="d" id="m-mrr-range"></div></div>
     <div class="metric"><div class="v" id="m-cac">-</div><div class="k">Blended CAC</div><div class="d" id="m-ltvcac"></div></div>
     <div class="metric"><div class="v" id="m-payback">-</div><div class="k">CAC payback</div><div class="d" id="m-ltv"></div></div>
+    <div class="metric"><div class="v" id="m-cash">-</div><div class="k">Cash at month 12 (median)</div><div class="d" id="m-cash-d"></div></div>
   </div>
 
   <h2>Odds of milestones</h2>

@@ -10,17 +10,25 @@
   function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
 
   function step(system, user, maxTokens) {
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 120000);
     return fetch(STEP_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system: system, user: user, maxOutputTokens: maxTokens || 8192 })
+      body: JSON.stringify({ system: system, user: user, maxOutputTokens: maxTokens || 8192 }),
+      signal: ctrl.signal
     }).then(function (r) {
       if (!r.ok) return r.json().catch(function(){return {};}).then(function (j) {
         throw new Error(j.error || ('api ' + r.status));
       });
       return r.json();
     }).then(function (j) {
+      clearTimeout(to);
       if (!j || j.result === undefined) throw new Error('bad payload');
       return j.result;
+    }, function (err) {
+      clearTimeout(to);
+      if (err && err.name === 'AbortError') throw new Error('model call timed out after 120s');
+      throw err;
     });
   }
 

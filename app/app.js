@@ -10,9 +10,12 @@
     if (Math.abs(n) >= 1e4) return (n / 1e3).toFixed(1) + 'k';
     return Math.round(n).toLocaleString('en-US');
   };
-  var money = function (n) { return n === null || n === undefined || isNaN(n) ? '-' : '$' + fmt(n); };
+  var money = function (n) {
+    if (n === null || n === undefined || isNaN(n)) return '-';
+    return (n < 0 ? '-' : '') + '$' + fmt(Math.abs(n));
+  };
   var pct = function (p) { return Math.round(p * 100) + '%'; };
-  var esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+  var esc = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
 
   // ---- populate selects ----
   var ptype = $('ptype'), geo = $('geo'), anchor = $('anchor'), chips = $('channel-chips');
@@ -48,6 +51,7 @@
   }
   ptype.addEventListener('change', updatePriceLabel);
   updatePriceLabel();
+  $('s-exec-v').textContent = '100%';
 
   function readInputs() {
     return {
@@ -106,7 +110,7 @@
       return '<div class="funnel-row"><div class="lab">' + r.lab + '</div>' +
         '<div style="flex:1"><div class="funnel-bar" style="width:' + w + '%"></div></div>' +
         '<div class="val">' + fmt(r.cust) + ' cust<br>' + money(r.rev) + '/yr</div></div>';
-    }).join('') + '<p class="note">TAM = anchor count x price. SAM = serviceable share for this product type and geography. SOM = year-1 median of the simulation (ceiling ' + fmt(sizing.somCaptureCeiling) + ' customers at benchmark capture). Log scale bars.</p>';
+    }).join('') + '<p class="note">TAM = anchor count x price. SAM = serviceable share for this product type and geography. SOM = year-1 median, and the simulation cannot grow past SAM (' + fmt(sizing.samCustomers) + ' customers). Benchmark capture ceiling ' + fmt(sizing.somCaptureCeiling) + '. Log scale bars.</p>';
   }
 
   function renderProbs(el, sim) {
@@ -132,7 +136,7 @@
     var html = '';
     usedSrcKeys.forEach(function (k) {
       var s = BENCH.sources[k];
-      if (s) html += '<p class="src">- <a href="' + s.url + '" target="_blank" rel="noopener">' + s.name + '</a></p>';
+      if (s) html += '<p class="src">- <a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.name) + '</a></p>';
     });
     html += '<p class="note">Entries marked "assumption" in the dataset are modeling defaults, editable in benchmarks.js. Formulas adapted from open-source bottoms-up market-sizing methods (github.com/stephenvelasquez/market-sizing-engine) and open GTM frameworks (github.com/AIDevGTM/gtm-cofounder).</p>';
     el.innerHTML = html;
@@ -142,8 +146,9 @@
   function localStrategy(input, R) {
     var econ = BENCH.econ[input.productType];
     var best = R.channels.filter(function (c) { return c.cac; }).sort(function (a, b) { return a.cac - b.cac; });
-    var verdict = R.econ.ltvCac >= 3 ? 'Unit economics clear the 3.0 LTV/CAC bar that investors treat as healthy.' :
-      'Unit economics are below the 3.0 LTV/CAC health bar - raise price, cut churn, or shift spend before scaling.';
+    var verdict = R.econ.ltvCac == null ? 'No paid CAC in this mix, so LTV/CAC is not defined yet.' :
+      (R.econ.ltvCac >= 3 ? 'Unit economics clear the 3.0 LTV/CAC bar that investors treat as healthy.' :
+      'Unit economics are below the 3.0 LTV/CAC health bar - raise price, cut churn, or shift spend before scaling.');
     var chan = best.slice(0, 3).map(function (c) {
       return { name: c.name, why: 'Lowest modeled CAC in your mix at ' + money(c.cac) + ' with ' + c.customersPerMonth.toFixed(1) + ' customers/mo on ' + money(c.spend) + '.', steps: ['Start with ' + money(c.spend) + '/mo', 'Hold it to its benchmark conversion rate', 'Cut if CAC exceeds ' + money(c.cac * 1.5) + ' after 4 weeks'] };
     });
@@ -168,21 +173,23 @@
 
   function renderAI(el, s, isLocal, withSim) {
     var label = isLocal ? 'LOCAL STRATEGY - AI OFFLINE' : (withSim ? 'AI STRATEGY - GEMINI + AGENT SIM' : 'AI STRATEGY - GEMINI');
-    var h = '<span class="pill' + (isLocal ? ' local' : '') + '">' + label + '</span>';
-    h += '<div class="ai-sec"><h3>Positioning</h3><p>' + s.positioning + '</p></div>';
-    h += '<div class="ai-sec"><h3>Verdict</h3><p>' + s.verdict + '</p></div>';
-    h += '<div class="ai-sec"><h3>Channel plays</h3>' + s.channels.map(function (c, i) {
-      return '<p><b>' + (i + 1) + '. ' + c.name + '</b> - ' + c.why + '</p><ul>' + c.steps.map(function (st) { return '<li>' + st + '</li>'; }).join('') + '</ul>';
+    var channels = Array.isArray(s.channels) ? s.channels : [];
+    var h = '<span class="pill' + (isLocal ? ' local' : '') + '">' + esc(label) + '</span>';
+    h += '<div class="ai-sec"><h3>Positioning</h3><p>' + esc(s.positioning) + '</p></div>';
+    h += '<div class="ai-sec"><h3>Verdict</h3><p>' + esc(s.verdict) + '</p></div>';
+    h += '<div class="ai-sec"><h3>Channel plays</h3>' + channels.map(function (c, i) {
+      var steps = Array.isArray(c.steps) ? c.steps : [];
+      return '<p><b>' + (i + 1) + '. ' + esc(c.name) + '</b> - ' + esc(c.why) + '</p><ul>' + steps.map(function (st) { return '<li>' + esc(st) + '</li>'; }).join('') + '</ul>';
     }).join('') + '</div>';
-    h += '<div class="ai-sec"><h3>Pricing</h3><p>' + s.pricing + '</p></div>';
-    h += '<div class="ai-sec"><h3>90-day plan</h3><ul>' + s.plan90.map(function (p) { return '<li>' + p + '</li>'; }).join('') + '</ul></div>';
-    h += '<div class="ai-sec"><h3>Risks</h3><ul>' + s.risks.map(function (r) { return '<li>' + r + '</li>'; }).join('') + '</ul></div>';
-    h += '<div class="ai-sec"><h3>Contrarian move</h3><p>' + s.contrarian + '</p></div>';
+    h += '<div class="ai-sec"><h3>Pricing</h3><p>' + esc(s.pricing) + '</p></div>';
+    h += '<div class="ai-sec"><h3>90-day plan</h3><ul>' + (s.plan90 || []).map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></div>';
+    h += '<div class="ai-sec"><h3>Risks</h3><ul>' + (s.risks || []).map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
+    h += '<div class="ai-sec"><h3>Contrarian move</h3><p>' + esc(s.contrarian) + '</p></div>';
     el.innerHTML = h;
   }
 
   // ---- run ----
-  var lastInput = null, lastResults = null;
+  var lastInput = null, lastResults = null, runGen = 0;
 
   function computeAndRender(input) {
     var R = Engine.runAll(input, BENCH, { n: 3000, months: 12, seed: (Date.now() % 100000) });
@@ -195,6 +202,8 @@
     $('m-ltvcac').textContent = R.econ.ltvCac ? 'LTV/CAC ' + R.econ.ltvCac.toFixed(1) : 'no paid channels';
     $('m-payback').textContent = R.econ.paybackMonths ? R.econ.paybackMonths.toFixed(1) + ' mo' : '-';
     $('m-ltv').textContent = 'LTV ' + money(R.econ.ltv) + ' over ' + R.econ.lifetimeMonths + ' mo';
+    $('m-cash').textContent = money(R.sim.cashEnd.p50);
+    $('m-cash-d').textContent = 'P10 low ' + money(R.sim.minCashP10) + ' · ' + pct(R.sim.probCashOut || 0) + ' of futures run out';
     renderProbs($('probs'), R.sim);
     drawFan($('fan'), R.sim.fan);
     renderFunnel($('funnel'), R.sizing, input.price);
@@ -204,13 +213,25 @@
     var eSrc = BENCH.econ[input.productType].src; if (eSrc && eSrc !== 'assumption') used[eSrc] = 1;
     var aSrc = BENCH.anchors[input.anchorKey].src; if (aSrc && aSrc !== 'assumption') used[aSrc] = 1;
     renderSources($('sources'), Object.keys(used));
-    // sliders
-    $('s-price').value = input.price; $('s-price-v').textContent = money(input.price) + '/mo';
-    $('s-budget').value = input.monthlyBudget; $('s-budget-v').textContent = money(input.monthlyBudget) + '/mo';
+    syncSliders(input);
     return R;
   }
 
+  function syncSliders(input) {
+    var priceMax = Math.max(500, Math.ceil(input.price / 10) * 10);
+    var budgetMax = Math.max(50000, Math.ceil(input.monthlyBudget / 1000) * 1000);
+    $('s-price').max = String(priceMax);
+    $('s-price').value = input.price;
+    $('s-price-v').textContent = money(input.price) + '/mo';
+    $('s-budget').max = String(budgetMax);
+    $('s-budget').value = input.monthlyBudget;
+    $('s-budget-v').textContent = money(input.monthlyBudget) + '/mo';
+    $('s-exec').value = 100;
+    $('s-exec-v').textContent = '100%';
+  }
+
   function fetchStrategy(input, R, sim) {
+    var gen = ++runGen;
     $('ai-status').classList.remove('hidden');
     $('ai-body').classList.add('hidden');
     var payload = {
@@ -257,6 +278,7 @@
       .then(function (r) { if (!r.ok) throw new Error('api ' + r.status); return r.json(); })
       .then(function (j) {
         clearTimeout(to);
+        if (gen !== runGen) return;
         if (!j || !j.strategy) throw new Error('bad payload');
         $('ai-status').classList.add('hidden');
         $('ai-body').classList.remove('hidden');
@@ -264,6 +286,7 @@
       })
       .catch(function () {
         clearTimeout(to);
+        if (gen !== runGen) return;
         $('ai-status').classList.add('hidden');
         $('ai-body').classList.remove('hidden');
         renderAI($('ai-body'), localStrategy(input, R), true, !!sim);
@@ -429,12 +452,18 @@
     $('m-ltvcac').textContent = R.econ.ltvCac ? 'LTV/CAC ' + R.econ.ltvCac.toFixed(1) : '';
     $('m-payback').textContent = R.econ.paybackMonths ? R.econ.paybackMonths.toFixed(1) + ' mo' : '-';
     $('m-ltv').textContent = 'LTV ' + money(R.econ.ltv) + ' over ' + R.econ.lifetimeMonths + ' mo';
+    $('m-cash').textContent = money(R.sim.cashEnd.p50);
+    $('m-cash-d').textContent = 'P10 low ' + money(R.sim.minCashP10) + ' · ' + pct(R.sim.probCashOut || 0) + ' of futures run out';
     renderProbs($('probs'), R.sim);
     drawFan($('fan'), R.sim.fan);
     renderFunnel($('funnel'), R.sizing, input.price);
     renderChannels(document.querySelector('#channel-table tbody'), R.channels);
   }
+  var scenarioTimer = null;
   ['s-price', 's-budget', 's-exec'].forEach(function (id) {
-    $(id).addEventListener('input', scenarioRecompute);
+    $(id).addEventListener('input', function () {
+      clearTimeout(scenarioTimer);
+      scenarioTimer = setTimeout(scenarioRecompute, 40);
+    });
   });
 })();
