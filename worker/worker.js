@@ -12,6 +12,7 @@ const CORS = {
 const MAX_BODY = 64 * 1024;
 const RATE_LIMIT = 40;          // requests per IP per hour (best effort, per isolate)
 const buckets = new Map();
+const researchCache = new Map();
 
 function rateOk(ip) {
   const now = Date.now();
@@ -87,6 +88,54 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === '/api/health') return json({ ok: true, service: 'gtm-world-model', time: new Date().toISOString() });
+    if (url.pathname === '/api/research' && request.method === 'POST') {
+      const ipR = request.headers.get('CF-Connecting-IP') || 'anon';
+      if (!rateOk(ipR)) return json({ error: 'rate limited - try again in an hour' }, 429);
+      let rb;
+      try { rb = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+      const q = (rb && typeof rb.query === 'string' ? rb.query : '').slice(0, 200).trim();
+      const src = rb && rb.source;
+      const limit = Math.min(Math.max(+(rb && rb.limit) || 15, 5), 25);
+      if (!q || (src !== 'reddit' && src !== 'hn')) return json({ error: 'need {source: reddit|hn, query}' }, 400);
+      const ck = src + '|' + q.toLowerCase() + '|' + limit;
+      const hit = researchCache.get(ck);
+      if (hit && Date.now() - hit.t < 600e3) return json(hit.v);
+      try {
+        let out;
+        if (src === 'reddit') {
+          const res = await fetch('https://www.reddit.com/search.json?q=' + encodeURIComponent(q) +
+            '&limit=' + limit + '&sort=relevance&t=year', { headers: { 'User-Agent': 'gtm-world-model-research/1.0' } });
+          if (!res.ok) throw new Error('reddit http ' + res.status);
+          const data = await res.json();
+          out = {
+            source: 'reddit', query: q,
+            results: (data.data.children || []).map(function (c) {
+              const d = c.data || {};
+              return { title: d.title, subreddit: 'r/' + d.subreddit, score: d.score, comments: d.num_comments,
+                       url: 'https://www.reddit.com' + (d.permalink || ''), text: (d.selftext || '').slice(0, 300) };
+            })
+          };
+        } else {
+          const res = await fetch('https://hn.algolia.com/api/v1/search?query=' + encodeURIComponent(q) +
+            '&tags=story&hitsPerPage=' + limit);
+          if (!res.ok) throw new Error('hn http ' + res.status);
+          const data = await res.json();
+          out = {
+            source: 'hn', query: q,
+            results: (data.hits || []).map(function (h) {
+              return { title: h.title, score: h.points, comments: h.num_comments,
+                       url: h.url || ('https://news.ycombinator.com/item?id=' + h.objectID),
+                       thread: 'https://news.ycombinator.com/item?id=' + h.objectID };
+            })
+          };
+        }
+        researchCache.set(ck, { t: Date.now(), v: out });
+        if (researchCache.size > 300) researchCache.clear();
+        return json(out);
+      } catch (e) {
+        return json({ error: 'research pull failed: ' + (e.message || 'unknown') }, 502);
+      }
+    }
     if (url.pathname === '/api/agent-step' && request.method === 'POST') {
       const ip0 = request.headers.get('CF-Connecting-IP') || 'anon';
       if (!rateOk(ip0)) return json({ error: 'rate limited - try again in an hour' }, 429);
