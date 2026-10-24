@@ -39,7 +39,7 @@
     });
   }
 
-  /* ---- SOCIAL LISTENING AGENT: real pulls (HN live; Reddit via Apify when token lands) ---- */
+  /* ---- SOCIAL LISTENING AGENT: real pulls (HN live via Algolia API) ---- */
   function socialListening(orch, input, queries) {
     orch.start('social-listening', 'Social-listening agent pulling real community data');
     var all = [];
