@@ -276,7 +276,21 @@
     Agents.plan(orch, input).then(function (plan) {
       var R = Agents.quantAnalyst(orch, input);
       if (R) { lastR = R; renderBaseline(R); }
-      return Agents.socialListening(orch, input, plan.queries).then(function (signals) {
+      return Promise.all([
+        Agents.socialListening(orch, input, plan.queries),
+        Agents.redditAgent(orch, input, plan.queries)
+      ]).then(function (parts) {
+        var hn = parts[0], rd = parts[1];
+        var signals = hn;
+        if (rd) {
+          if (signals) {
+            signals.pain_points = (signals.pain_points || []).concat(rd.pain_points || []).slice(0, 10);
+            signals.demand_signals = (signals.demand_signals || []).concat(rd.demand_signals || []).slice(0, 8);
+            signals.threads = (signals.threads || []).concat(rd.threads || []).slice(0, 10);
+            signals.sourcesUsed = (signals.sourcesUsed || []).concat(rd.sourcesUsed || []);
+            if (rd.readiness && signals.readiness === 'unreadable from this source') { signals.readiness = rd.readiness; signals.summary = rd.summary; }
+          } else signals = rd;
+        }
         if (signals) renderSignals(signals);
         return Agents.consumerPanel(orch, input, signals, function (row) {
           simSeries.push(row);

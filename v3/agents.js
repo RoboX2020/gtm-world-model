@@ -212,17 +212,18 @@
   /* ---- BRIGHT DATA AGENTS (Reddit / G2 reviews / Trends / LinkedIn) ----
      Dataset IDs pending confirmation from the sponsor agent's Bright Data docs testing.
      LinkedIn confirmed: gd_l1viktl72bvl7bjuj0 (sync scrape, {input:[{url}]}). */
-  var BD_DATASETS = {
-    'reddit-agent': null,          // reddit posts by keyword - ID pending
-    'g2-agent': null,              // G2 product reviews - ID pending
-    'trends-agent': null,          // Google Trends - ID pending
-    'linkedin-agent': 'gd_l1viktl72bvl7bjuj0'  // LinkedIn (confirmed; needs profile/company URLs)
+  var BD_DATASETS = {              // IDs verified from Bright Data docs via the sponsor agent, 2026-10-24
+    'reddit-agent': 'gd_lvz8ah06191smkebj4',    // Reddit posts by keyword (discover_new/keyword)
+    'g2-agent': 'gd_l88xvdka1uao86xvlb',        // G2 product reviews (needs product review URLs)
+    'trends-agent': null,                       // Google Trends = SERP API, zone created after activation
+    'linkedin-agent': 'gd_l1viktl72bvl7bjuj0'   // LinkedIn profiles (needs profile/company URLs)
   };
 
   function bdCall(body) { return post('/api/brightdata', body); }
 
   /* generic async dataset run: trigger -> poll snapshot -> summarize */
-  function brightDataAgent(orch, agentId, input, buildInput, summarizeSys, renderLabel) {
+  function brightDataAgent(orch, agentId, input, buildInput, summarizeSys, renderLabel, opts) {
+    opts = opts || {};
     var ds = BD_DATASETS[agentId];
     if (!ds) {
       orch.pending(agentId, orch.agents[agentId].name + ': dataset ID pending from Bright Data docs - arrives with the key');
@@ -232,6 +233,11 @@
     var items;
     return Promise.resolve().then(buildInput).then(function (bdInput) {
       if (!bdInput) { orch.pending(agentId, orch.agents[agentId].name + ': skipped (no usable input this run)'); return null; }
+      if (opts.sync) {
+        return bdCall({ mode: 'scrape', dataset_id: ds, input: bdInput, extra: opts.extra || '' }).then(function (r) {
+          return summarizeRows(Array.isArray(r.result) ? r.result : (r.result && r.result.results) || []);
+        });
+      }
       return bdCall({ mode: 'trigger', dataset_id: ds, input: bdInput }).then(function (r) {
         var snap = r.result && r.result.snapshot_id;
         if (!snap) throw new Error('no snapshot_id returned');
@@ -248,31 +254,43 @@
         }
         return poll();
       }).then(function (rows) {
-        items = Array.isArray(rows) ? rows.slice(0, 25) : [];
-        orch.log(agentId, items.length + ' real records pulled - summarizing with Gemini...');
-        return post('/api/agent-step', {
-          system: summarizeSys,
-          user: 'Product: ' + input.productName + ' - ' + (input.description || '') + '\nPrice: $' + input.price + '/mo\nReal records:\n' + JSON.stringify(items).slice(0, 24000),
-          maxOutputTokens: 2048
-        });
-      }).then(function (j) {
-        var sig = j.result;
-        sig.sourcesUsed = ['Bright Data ' + renderLabel + ' (live)'];
-        orch.done(agentId, orch.agents[agentId].name + ' done: ' + items.length + ' real records analyzed', sig);
-        return sig;
+        return summarizeRows(Array.isArray(rows) ? rows : []);
       });
     }).catch(function (e) {
       var msg = e.message || 'unknown';
-      if (/501|not configured|activation/i.test(msg)) {
+      if (/501|not configured|activation|not active/i.test(msg)) {
         orch.pending(agentId, orch.agents[agentId].name + ': waiting on Bright Data activation (one-time account step, approval pending)');
       } else {
         orch.fail(agentId, orch.agents[agentId].name + ' failed: ' + msg);
       }
       return null;
     });
+    function summarizeRows(rows) {
+      items = rows.slice(0, 25);
+      orch.log(agentId, items.length + ' real records pulled - summarizing with Gemini...');
+      return post('/api/agent-step', {
+        system: summarizeSys,
+        user: 'Product: ' + input.productName + ' - ' + (input.description || '') + '\nPrice: $' + input.price + '/mo\nReal records:\n' + JSON.stringify(items).slice(0, 24000),
+        maxOutputTokens: 2048
+      }).then(function (j) {
+        var sig = j.result;
+        sig.sourcesUsed = ['Bright Data ' + renderLabel + ' (live)'];
+        orch.done(agentId, orch.agents[agentId].name + ' done: ' + items.length + ' real records analyzed', sig);
+        return sig;
+      });
+    }
+  }
+
+  /* Reddit agent: keyword discovery over real Reddit posts (sync scrape) */
+  function redditAgent(orch, input, queries) {
+    var sys = 'You analyze real Reddit posts for go-to-market demand signals. Be concrete; cite what is actually in the data; never invent statistics.\n' +
+      'Return STRICT JSON: {"summary":"<=60 words","pain_points":["<=8 short pain points people actually express"],"demand_signals":["<=6 concrete signals"],"sentiment":{"positive":int,"neutral":int,"negative":int},"readiness":"one of: strong demand|moderate demand|weak demand|mostly indifferent","evidence_note":"<=20 words"}';
+    return brightDataAgent(orch, 'reddit-agent', input, function () {
+      return queries.slice(0, 3).map(function (q) { return { keyword: q }; });
+    }, sys, 'Reddit posts by keyword', { sync: true, extra: 'type=discover_new&discover_by=keyword' });
   }
 
   root.Agents = { plan: plan, socialListening: socialListening, quantAnalyst: quantAnalyst,
                   consumerPanel: consumerPanel, strategist: strategist,
-                  brightDataAgent: brightDataAgent, BD_DATASETS: BD_DATASETS };
+                  brightDataAgent: brightDataAgent, redditAgent: redditAgent, BD_DATASETS: BD_DATASETS };
 })(typeof self !== 'undefined' ? self : this);

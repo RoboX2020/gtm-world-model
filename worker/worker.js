@@ -110,7 +110,8 @@ export default {
           if (!/^gd_[a-z0-9]+$/i.test(ds)) return json({ error: 'bad dataset_id' }, 400);
           const input = Array.isArray(bb.input) ? bb.input.slice(0, 10) : null;
           if (!input || !input.length) return json({ error: 'need input[] (max 10)' }, 400);
-          const path = mode === 'scrape' ? 'scrape?notify=false&include_errors=true' : 'trigger?include_errors=true';
+          const extra = /^[a-z0-9_=&%-]*$/i.test(String(bb.extra || '')) ? String(bb.extra || '') : '';
+          const path = (mode === 'scrape' ? 'scrape?notify=false&include_errors=true' : 'trigger?include_errors=true') + (extra ? '&' + extra : '');
           const res = await fetch('https://api.brightdata.com/datasets/v3/' + path + '&dataset_id=' + ds,
             { method: 'POST', headers: H, body: JSON.stringify(mode === 'scrape' ? { input: input } : input) });
           const text = await res.text();
