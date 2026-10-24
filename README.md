@@ -7,6 +7,9 @@ an AI strategist writes the plan on top of those numbers.
 
 Live app: https://gtm-world-model.pages.dev
 
+The public site is Mission Control in `v3/` (agent rail, live activity stream, results panels).
+`app/` is the single-page baseline plus the optional 48-agent simulation, published at `/classic`.
+
 ## What is real vs directional
 
 - **Real math, deterministic:** TAM/SAM/SOM, per-channel funnels, CAC/LTV/payback, and a
@@ -23,9 +26,13 @@ Live app: https://gtm-world-model.pages.dev
 
 ## Architecture
 
-- `app/` - static frontend (vanilla JS, canvas charts, no build step), hosted on Cloudflare Pages.
-- `worker/` - Cloudflare Worker (`gtm-world-model-api`) holding the Gemini key server-side,
-  rate-limited, POST /api/strategy -> constrained JSON strategy.
+- `v3/` - Mission Control frontend (vanilla JS, no build step).
+- `app/` - single-page baseline and deep consumer simulation.
+- `worker/` - Cloudflare Worker (`gtm-world-model-api`) holding the Gemini and Bright Data keys server-side.
+  The browser never sees those keys. Vercel hosts the static site and keeps calling this worker.
+
+Not wired, on purpose, until a target URL or SERP zone exists: LinkedIn, Instagram, G2 reviews, and Google Trends.
+Hacker News is live. Reddit runs through Bright Data when that key is active.
 
 ## Method credits
 

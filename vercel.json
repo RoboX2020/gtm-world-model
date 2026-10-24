@@ -1,0 +1,6 @@
+{
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "node scripts/build-static.js",
+  "outputDirectory": "dist"
+}

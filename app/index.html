@@ -59,6 +59,10 @@ td{padding:9px 6px;border-bottom:1px solid var(--line)}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:34px;background:transparent;padding:0;border:none}
 input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:var(--panel2)}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--orange);margin-top:-10px}
+input[type=range]::-moz-range-track{height:6px;border-radius:999px;background:var(--panel2);border:none}
+input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:var(--orange);border:none}
+select{background-image:linear-gradient(45deg,transparent 50%,var(--grey) 50%),linear-gradient(135deg,var(--grey) 50%,transparent 50%);background-position:calc(100% - 18px) calc(50% - 3px),calc(100% - 13px) calc(50% - 3px);background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:36px}
+@media (max-width:520px){.row2,.grid2{grid-template-columns:1fr}}
 details{margin:12px 0}
 summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--orange);padding:8px 0}
 .src{font-size:12px;color:var(--grey);margin:4px 0;word-break:break-all}
@@ -82,7 +86,7 @@ footer{color:var(--grey);font-size:12px;text-align:center;margin:30px 0 10px}
 <div class="wrap">
 <header>
   <div class="brand"><div class="mark">G</div><h1>GTM World Model</h1></div>
-  <p class="sub">A go-to-market strategy engine with real-world constraints. Market sizing, unit economics and Monte Carlo predictions computed from cited public benchmarks; AI strategy narrative on top. Not a slide generator.</p>
+  <p class="sub">Market sizing, unit economics and a Monte Carlo baseline computed from cited public benchmarks - plus a deep consumer simulation where 48 AI agents with personas, budgets and memory make real purchase decisions. AI strategy on top. Not a slide generator.</p>
 </header>
 
 <section id="form-section">
@@ -148,15 +152,33 @@ footer{color:var(--grey);font-size:12px;text-align:center;margin:30px 0 10px}
     <div class="metric"><div class="v" id="m-mrr">-</div><div class="k">Monthly revenue, month 12 (median)</div><div class="d" id="m-mrr-range"></div></div>
     <div class="metric"><div class="v" id="m-cac">-</div><div class="k">Blended CAC</div><div class="d" id="m-ltvcac"></div></div>
     <div class="metric"><div class="v" id="m-payback">-</div><div class="k">CAC payback</div><div class="d" id="m-ltv"></div></div>
+    <div class="metric"><div class="v" id="m-cash">-</div><div class="k">Cash at month 12 (median)</div><div class="d" id="m-cash-d"></div></div>
   </div>
 
   <h2>Odds of milestones</h2>
   <div class="card" id="probs"></div>
 
-  <h2>12-month simulation</h2>
+  <h2>12-month baseline - Monte Carlo</h2>
   <div class="card">
     <canvas id="fan" width="700" height="300"></canvas>
-    <p class="note">3,000 simulated futures. Shaded band: 10th-90th percentile. Line: median. Parameters sampled around cited benchmarks.</p>
+    <p class="note">3,000 simulated futures. Shaded band: 10th-90th percentile. Line: median. Parameters sampled around cited benchmarks. Instant baseline - no AI agents here. For emergent consumer behavior, run the deep simulation below.</p>
+  </div>
+
+  <h2>Deep consumer simulation</h2>
+  <div class="card" id="sim-panel">
+    <span class="pill">REAL AI AGENTS - GEMINI</span>
+    <p class="note" style="font-size:13px;color:#DDD;margin-bottom:4px">A panel of 48 AI consumers with persistent personas, budgets and memory stands in for the people your marketing reaches over 6 months. Every purchase, churn and recommendation is a live model inference - not a formula. Takes about a minute.</p>
+    <button class="btn" id="sim-btn">Run deep simulation</button>
+    <div id="sim-live" class="hidden">
+      <div id="sim-log" class="note" style="max-height:170px;overflow-y:auto;margin-top:12px"></div>
+      <canvas id="sim-chart" width="700" height="260" style="margin-top:10px"></canvas>
+      <div class="grid2" style="margin-top:10px">
+        <div class="metric"><div class="v" id="sim-adopt">-</div><div class="k">Reached consumers who buy (final month)</div><div class="d" id="sim-adopt-d"></div></div>
+        <div class="metric"><div class="v" id="sim-wtp">-</div><div class="k">Median willingness to pay / mo</div><div class="d" id="sim-wtp-d"></div></div>
+      </div>
+      <div id="sim-quotes"></div>
+      <p class="note" style="margin-top:10px">What this is: an LLM-agent market simulation (method: Generative Agents, Park et al. 2023; EconAgent, ACL 2024; MarketFish, MIT 2026), calibrated with base-rate priors from cited conversion benchmarks. What it is not: a validated predictor. LLM consumer panels systematically skew optimistic, so treat the curve as directional behavioral evidence, not a forecast.</p>
+    </div>
   </div>
 
   <h2>Market sizing</h2>
@@ -192,10 +214,11 @@ footer{color:var(--grey);font-size:12px;text-align:center;margin:30px 0 10px}
   <div class="footbar"><button class="btn ghost" id="edit-btn">Edit inputs</button></div>
 </section>
 
-<footer>Directional model from cited public benchmarks - a map, not a promise.<br>Built on open-source market-sizing methods.</footer>
+<footer>Monte Carlo baseline from cited public benchmarks; deep simulation from live LLM consumer agents. Both directional - a map, not a promise.<br>Built on open-source market-sizing methods and published generative-agent research.</footer>
 </div>
 <script src="benchmarks.js"></script>
 <script src="engine.js"></script>
+<script src="sim.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
