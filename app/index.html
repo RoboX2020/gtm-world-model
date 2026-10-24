@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>GTM World Model</title>
+<meta name="description" content="AI go-to-market strategy engine: market sizing, unit economics and Monte Carlo predictions on real benchmark values.">
+<style>
+:root{
+  --orange:#FF6B1A; --orange-soft:#FF8A47; --black:#0A0A0A; --panel:#141414; --panel2:#1C1C1C;
+  --white:#FFFFFF; --grey:#9C9C9C; --line:#2A2A2A; --good:#34C759; --warn:#FF9500; --bad:#FF3B30;
+  --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--black);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45;padding-bottom:calc(env(safe-area-inset-bottom) + 24px)}
+.wrap{max-width:760px;margin:0 auto;padding:0 18px}
+header{padding:calc(env(safe-area-inset-top) + 28px) 0 18px}
+.brand{display:flex;align-items:center;gap:10px}
+.mark{width:34px;height:34px;border-radius:9px;background:var(--orange);display:grid;place-items:center;font-weight:800;color:#000;font-size:17px}
+h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
+.sub{color:var(--grey);font-size:14px;margin-top:6px}
+h2{font-size:18px;font-weight:700;margin:26px 0 12px;letter-spacing:-.01em}
+h3{font-size:15px;font-weight:700;margin:0 0 8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+label{display:block;font-size:13px;font-weight:600;color:var(--grey);margin:14px 0 6px}
+input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--white);border-radius:12px;padding:13px 14px;font-size:16px;font-family:inherit;-webkit-appearance:none;appearance:none}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--orange)}
+textarea{min-height:74px;resize:vertical}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.chip{border:1px solid var(--line);background:var(--panel2);color:var(--white);border-radius:999px;padding:9px 14px;font-size:14px;cursor:pointer;user-select:none}
+.chip.on{background:var(--orange);border-color:var(--orange);color:#000;font-weight:700}
+.btn{display:block;width:100%;background:var(--orange);color:#000;border:none;border-radius:14px;padding:16px;font-size:17px;font-weight:800;cursor:pointer;margin-top:20px}
+.btn:disabled{opacity:.5}
+.btn.ghost{background:var(--panel2);color:var(--white);border:1px solid var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.metric{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.metric .v{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.metric .k{font-size:12px;color:var(--grey);margin-top:2px}
+.metric .d{font-size:12px;color:var(--grey);margin-top:4px}
+.funnel-row{display:flex;align-items:center;gap:10px;margin:8px 0}
+.funnel-row .lab{width:44px;font-size:12px;color:var(--grey);text-align:right}
+.funnel-bar{height:30px;border-radius:8px;background:linear-gradient(90deg,var(--orange),var(--orange-soft));min-width:2px}
+.funnel-row .val{font-size:12px;color:var(--grey);white-space:nowrap}
+canvas{width:100%;display:block}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--grey);font-weight:600;padding:8px 6px;border-bottom:1px solid var(--line);font-size:12px}
+td{padding:9px 6px;border-bottom:1px solid var(--line)}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);color:var(--grey)}
+.tag.good{color:var(--good);border-color:var(--good)}
+.tag.warn{color:var(--warn);border-color:var(--warn)}
+.prob{margin:10px 0}
+.prob .plab{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+.prob .track{height:10px;border-radius:999px;background:var(--panel2);overflow:hidden}
+.prob .fill{height:100%;background:var(--orange);border-radius:999px}
+.slider-block{margin:6px 0 16px}
+.slider-block .sl{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:34px;background:transparent;padding:0;border:none}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:var(--panel2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--orange);margin-top:-10px}
+details{margin:12px 0}
+summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--orange);padding:8px 0}
+.src{font-size:12px;color:var(--grey);margin:4px 0;word-break:break-all}
+.src a{color:var(--orange-soft);text-decoration:none}
+.note{font-size:12px;color:var(--grey);margin-top:8px}
+.ai-sec{margin:14px 0}
+.ai-sec p,.ai-sec li{font-size:14px;color:#DDD}
+.ai-sec ul{padding-left:18px}
+.ai-sec li{margin:5px 0}
+.pill{display:inline-block;background:var(--orange);color:#000;font-size:11px;font-weight:800;border-radius:999px;padding:3px 10px;margin-bottom:8px}
+.pill.local{background:var(--panel2);color:var(--warn);border:1px solid var(--warn)}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--orange);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-3px;margin-right:8px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.hidden{display:none}
+#results-section{padding-bottom:80px}
+footer{color:var(--grey);font-size:12px;text-align:center;margin:30px 0 10px}
+.footbar{position:sticky;bottom:0;background:linear-gradient(transparent,var(--black) 40%);padding:14px 0 calc(env(safe-area-inset-bottom) + 4px)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand"><div class="mark">G</div><h1>GTM World Model</h1></div>
+  <p class="sub">A go-to-market strategy engine with real-world constraints. Market sizing, unit economics and Monte Carlo predictions computed from cited public benchmarks; AI strategy narrative on top. Not a slide generator.</p>
+</header>
+
+<section id="form-section">
+  <div class="card">
+    <h3>Product</h3>
+    <label for="pname">Product name</label>
+    <input id="pname" type="text" placeholder="e.g. Tagg" autocomplete="off">
+    <label for="pdesc">What it does (one or two sentences)</label>
+    <textarea id="pdesc" placeholder="e.g. Scan a badge, exchange digital business cards, remember everyone you meet"></textarea>
+    <label>Product type</label>
+    <select id="ptype"></select>
+  </div>
+
+  <div class="card">
+    <h3>Market &amp; customers</h3>
+    <label>Geography</label>
+    <select id="geo"></select>
+    <label>Who is the customer? (market anchor)</label>
+    <select id="anchor"></select>
+    <div id="anchor-count-wrap" class="hidden">
+      <label for="anchorCount">Custom reachable customer count</label>
+      <input id="anchorCount" type="number" inputmode="numeric" min="100" step="100" value="100000">
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Money</h3>
+    <div class="row2">
+      <div>
+        <label for="price" id="price-label">Price ($ / month)</label>
+        <input id="price" type="number" inputmode="decimal" min="0" step="1" value="20">
+      </div>
+      <div>
+        <label for="budget">Marketing budget ($ / month)</label>
+        <input id="budget" type="number" inputmode="numeric" min="0" step="100" value="2000">
+      </div>
+    </div>
+    <div class="row2">
+      <div>
+        <label for="existing">Existing customers</label>
+        <input id="existing" type="number" inputmode="numeric" min="0" step="1" value="0">
+      </div>
+      <div>
+        <label for="cash">Cash available ($)</label>
+        <input id="cash" type="number" inputmode="numeric" min="0" step="1000" value="10000">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Channels in play</h3>
+    <p class="note">Pick the channels you could realistically run. The model weights spend across them.</p>
+    <div class="chips" id="channel-chips"></div>
+  </div>
+
+  <button class="btn" id="run-btn">Run the world model</button>
+</section>
+
+<section id="results-section" class="hidden">
+  <h2>Prediction</h2>
+  <div class="grid2">
+    <div class="metric"><div class="v" id="m-cust">-</div><div class="k">Customers in 12 months (median)</div><div class="d" id="m-cust-range"></div></div>
+    <div class="metric"><div class="v" id="m-mrr">-</div><div class="k">Monthly revenue, month 12 (median)</div><div class="d" id="m-mrr-range"></div></div>
+    <div class="metric"><div class="v" id="m-cac">-</div><div class="k">Blended CAC</div><div class="d" id="m-ltvcac"></div></div>
+    <div class="metric"><div class="v" id="m-payback">-</div><div class="k">CAC payback</div><div class="d" id="m-ltv"></div></div>
+  </div>
+
+  <h2>Odds of milestones</h2>
+  <div class="card" id="probs"></div>
+
+  <h2>12-month simulation</h2>
+  <div class="card">
+    <canvas id="fan" width="700" height="300"></canvas>
+    <p class="note">3,000 simulated futures. Shaded band: 10th-90th percentile. Line: median. Parameters sampled around cited benchmarks.</p>
+  </div>
+
+  <h2>Market sizing</h2>
+  <div class="card" id="funnel"></div>
+
+  <h2>Channel economics</h2>
+  <div class="card" style="overflow-x:auto">
+    <table id="channel-table">
+      <thead><tr><th>Channel</th><th>Spend/mo</th><th>Cust/mo</th><th>CAC</th><th>Ramp</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2>AI strategy</h2>
+  <div class="card" id="ai-panel">
+    <div id="ai-status"><span class="spinner"></span>Building your strategy from these numbers...</div>
+    <div id="ai-body" class="hidden"></div>
+  </div>
+
+  <h2>Scenarios</h2>
+  <div class="card">
+    <div class="slider-block"><div class="sl"><span>Price</span><b id="s-price-v"></b></div><input type="range" id="s-price" min="1" max="500" step="1"></div>
+    <div class="slider-block"><div class="sl"><span>Monthly budget</span><b id="s-budget-v"></b></div><input type="range" id="s-budget" min="0" max="50000" step="250"></div>
+    <div class="slider-block"><div class="sl"><span>Execution quality (beats/misses benchmarks)</span><b id="s-exec-v"></b></div><input type="range" id="s-exec" min="50" max="200" step="5" value="100"></div>
+    <p class="note">Scenarios recompute the model instantly. The AI narrative stays tied to the original run.</p>
+  </div>
+
+  <details>
+    <summary>Benchmarks &amp; sources</summary>
+    <div id="sources"></div>
+  </details>
+
+  <div class="footbar"><button class="btn ghost" id="edit-btn">Edit inputs</button></div>
+</section>
+
+<footer>Directional model from cited public benchmarks - a map, not a promise.<br>Built on open-source market-sizing methods.</footer>
+</div>
+<script src="benchmarks.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
