@@ -10,7 +10,7 @@ const CORS = {
   'Access-Control-Max-Age': '86400'
 };
 const MAX_BODY = 64 * 1024;
-const RATE_LIMIT = 40;          // requests per IP per hour (best effort, per isolate)
+const RATE_LIMIT = 400;         // a full agent run legitimately uses 60-80 calls (14-call sim + snapshot polling)          // requests per IP per hour (best effort, per isolate)
 const buckets = new Map();
 const researchCache = new Map();
 

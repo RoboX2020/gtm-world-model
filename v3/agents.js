@@ -238,23 +238,44 @@
           return summarizeRows(Array.isArray(r.result) ? r.result : (r.result && r.result.results) || []);
         });
       }
-      return bdCall({ mode: 'trigger', dataset_id: ds, input: bdInput }).then(function (r) {
-        var snap = r.result && r.result.snapshot_id;
-        if (!snap) throw new Error('no snapshot_id returned');
-        orch.log(agentId, 'Bright Data job started (snapshot ' + snap + '), polling...');
+      var jobs = opts.singleRowJobs ? bdInput.map(function (r) { return [r]; }) : [bdInput];
+      var snaps = [];
+      var chain = Promise.resolve();
+      jobs.forEach(function (rows, ji) {
+        chain = chain.then(function () {
+          return bdCall({ mode: 'trigger', dataset_id: ds, input: rows, extra: opts.extra || '' }).then(function (r) {
+            var snap = r.result && r.result.snapshot_id;
+            if (!snap) throw new Error('no snapshot_id returned');
+            snaps.push(snap);
+            orch.log(agentId, 'Bright Data job ' + (ji + 1) + '/' + jobs.length + ' started (snapshot ' + snap + ')');
+          });
+        });
+      });
+      return chain.then(function () {
+        orch.log(agentId, 'Polling ' + snaps.length + ' Bright Data job(s)...');
         var tries = 0;
-        function poll() {
-          if (++tries > 18) throw new Error('snapshot timed out');
+        var done = {};
+        function pollAll() {
+          if (++tries > 48) throw new Error('snapshot timed out');
           return new Promise(function (res) { setTimeout(res, 5000); }).then(function () {
-            return bdCall({ mode: 'snapshot', snapshot_id: snap });
-          }).then(function (s) {
-            if (s.pending) return poll();
-            return s.result;
+            var pending = snaps.filter(function (s) { return !done[s]; });
+            if (!pending.length) return null;
+            var p = Promise.resolve();
+            pending.forEach(function (snap) {
+              p = p.then(function () {
+                return bdCall({ mode: 'snapshot', snapshot_id: snap }).then(function (s) {
+                  if (!s.pending) done[snap] = Array.isArray(s.result) ? s.result : [];
+                });
+              });
+            });
+            return p.then(function () { return pollAll(); });
           });
         }
-        return poll();
-      }).then(function (rows) {
-        return summarizeRows(Array.isArray(rows) ? rows : []);
+        return pollAll().then(function () {
+          var rows = [];
+          snaps.forEach(function (s) { rows = rows.concat(done[s] || []); });
+          return summarizeRows(rows);
+        });
       });
     }).catch(function (e) {
       var msg = e.message || 'unknown';
@@ -286,8 +307,8 @@
     var sys = 'You analyze real Reddit posts for go-to-market demand signals. Be concrete; cite what is actually in the data; never invent statistics.\n' +
       'Return STRICT JSON: {"summary":"<=60 words","pain_points":["<=8 short pain points people actually express"],"demand_signals":["<=6 concrete signals"],"sentiment":{"positive":int,"neutral":int,"negative":int},"readiness":"one of: strong demand|moderate demand|weak demand|mostly indifferent","evidence_note":"<=20 words"}';
     return brightDataAgent(orch, 'reddit-agent', input, function () {
-      return queries.slice(0, 3).map(function (q) { return { keyword: q }; });
-    }, sys, 'Reddit posts by keyword', { sync: true, extra: 'type=discover_new&discover_by=keyword' });
+      return queries.slice(0, 3).map(function (q) { return { keyword: q, date: 'Past month', sort_by: 'Relevance' }; });
+    }, sys, 'Reddit posts by keyword', { extra: 'type=discover_new&discover_by=keyword', singleRowJobs: true });
   }
 
   root.Agents = { plan: plan, socialListening: socialListening, quantAnalyst: quantAnalyst,
