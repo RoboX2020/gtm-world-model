@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GTM World Model - Mission Control</title>
+<meta name="description" content="A visible multi-agent go-to-market system: an orchestrator delegates research to sub-agents pulling real web data, a panel of 48 AI consumers simulates the market, and a strategist synthesizes it all.">
+<style>
+:root{--orange:#FF6B1A;--orange-soft:#FF8A47;--black:#070707;--panel:#111111;--panel2:#191919;--line:#262626;--white:#FFF;--grey:#8F8F8F;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--good:#34C759;--warn:#FF9500;--bad:#FF3B30}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--black);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;overflow-x:hidden}
+header{height:60px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 18px;background:var(--panel)}
+.mark{width:30px;height:30px;border-radius:8px;background:var(--orange);display:grid;place-items:center;font-weight:800;color:#000;font-size:15px;flex:none}
+h1{font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap}
+.tag-sys{font-size:11px;color:var(--grey);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap}
+.hdr-input{background:var(--panel2);border:1px solid var(--line);color:var(--white);border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit}
+.hdr-input:focus{outline:none;border-color:var(--orange)}
+#h-name{width:190px}#h-price{width:90px}
+.btn{background:var(--orange);color:#000;border:none;border-radius:10px;padding:10px 22px;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.5}
+.btn.ghost{background:var(--panel2);color:var(--white);border:1px solid var(--line)}
+.layout{display:grid;grid-template-columns:250px minmax(420px,1fr) 400px;height:calc(100vh - 60px)}
+/* left rail */
+#rail{border-right:1px solid var(--line);background:var(--panel);padding:14px;overflow-y:auto}
+.rail-h{font-size:11px;font-weight:700;color:var(--grey);letter-spacing:.08em;margin-bottom:10px}
+.agent{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:var(--panel2)}
+.agent .nm{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+.agent .st{font-size:11px;color:var(--grey);margin-top:3px}
+.dot{width:8px;height:8px;border-radius:50%;background:#444;flex:none}
+.agent.running .dot{background:var(--orange);animation:pulse 1s infinite alternate}
+.agent.done .dot{background:var(--good)}
+.agent.error .dot{background:var(--bad)}
+.agent.pending{opacity:.55}
+.agent.pending .dot{background:var(--warn)}
+@keyframes pulse{from{box-shadow:0 0 0 0 rgba(255,107,26,.5)}to{box-shadow:0 0 0 6px rgba(255,107,26,0)}}
+/* center stream */
+#stream-wrap{display:flex;flex-direction:column;min-width:0}
+#stream{flex:1;overflow-y:auto;padding:14px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+.sline{display:flex;gap:10px;padding:2px 0;border-bottom:1px solid #151515}
+.sline .ts{color:#555;flex:none}
+.sline .ag{flex:none;width:132px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sline .tx{color:#DDD;word-break:break-word}
+.sline[data-agent=orchestrator] .ag{color:var(--orange)}
+.sline[data-agent=social-listening] .ag{color:#4FC3F7}
+.sline[data-agent=consumer-panel] .ag{color:#BA68C8}
+.sline[data-agent=quant-analyst] .ag{color:#81C784}
+.sline[data-agent=strategist] .ag{color:#FFD54F}
+.sline.err .tx{color:var(--bad)}
+#stream-empty{color:#555;padding:40px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.8}
+/* right rail */
+#results{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--line);flex:none}
+.tab{flex:1;text-align:center;padding:11px 4px;font-size:12px;font-weight:700;color:var(--grey);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--white);border-bottom-color:var(--orange)}
+.tab .cnt{color:var(--orange)}
+#panels{flex:1;overflow-y:auto;padding:14px}
+.panel{display:none}
+.panel.on{display:block}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+h3{font-size:13px;font-weight:700;margin:0 0 8px}
+.note{font-size:12px;color:var(--grey);margin-top:8px;line-height:1.5}
+.pill{display:inline-block;background:var(--orange);color:#000;font-size:10px;font-weight:800;border-radius:999px;padding:3px 9px;margin-bottom:8px;letter-spacing:.03em}
+.sig-item{border-left:2px solid var(--orange);padding:6px 10px;margin:6px 0;font-size:12.5px;color:#DDD;background:#141414;border-radius:0 8px 8px 0}
+.thread{display:block;font-size:12px;padding:7px 0;border-bottom:1px solid var(--line);color:#DDD;text-decoration:none}
+.thread:hover{color:var(--orange-soft)}
+.thread .meta{color:var(--grey);font-size:11px}
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.metric{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+.metric .v{font-size:18px;font-weight:800;letter-spacing:-.02em}
+.metric .k{font-size:10.5px;color:var(--grey);margin-top:2px}
+canvas{width:100%;display:block;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.ai-sec{margin:12px 0}
+.ai-sec p,.ai-sec li{font-size:12.5px;color:#DDD;line-height:1.5}
+.ai-sec ul{padding-left:16px}
+.ai-sec li{margin:4px 0}
+.quote{font-size:12px;color:#DDD;padding:6px 0;border-bottom:1px solid var(--line)}
+.qtag{display:inline-block;font-size:10px;font-weight:800;border-radius:999px;padding:2px 8px;margin-right:6px;border:1px solid var(--line);color:var(--grey)}
+.qtag.purchase{color:var(--good);border-color:var(--good)}
+.qtag.churn{color:var(--bad);border-color:var(--bad)}
+/* drawer */
+#drawer{position:fixed;top:60px;left:0;right:0;background:var(--panel);border-bottom:1px solid var(--line);padding:16px 18px;z-index:10;display:none;max-height:calc(100vh - 60px);overflow-y:auto}
+#drawer.open{display:block}
+.drawer-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;max-width:1100px}
+label{display:block;font-size:11px;font-weight:600;color:var(--grey);margin:8px 0 4px}
+input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--white);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--orange)}
+textarea{min-height:56px;resize:vertical}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.chip{border:1px solid var(--line);background:var(--panel2);color:var(--white);border-radius:999px;padding:6px 12px;font-size:12px;cursor:pointer;user-select:none}
+.chip.on{background:var(--orange);border-color:var(--orange);color:#000;font-weight:700}
+@media (max-width:1100px){.layout{grid-template-columns:200px minmax(360px,1fr) 330px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">G</div>
+  <h1>GTM World Model</h1>
+  <span class="tag-sys">MISSION CONTROL - VISIBLE MULTI-AGENT SYSTEM</span>
+  <input id="h-name" class="hdr-input" placeholder="Product name" autocomplete="off">
+  <input id="h-price" class="hdr-input" type="number" min="1" value="20" title="Price $/mo">
+  <button class="btn ghost" id="inputs-btn">Inputs</button>
+  <button class="btn" id="run-btn">Deploy agents</button>
+</header>
+
+<div id="drawer">
+  <div class="drawer-grid">
+    <div>
+      <label>What it does</label>
+      <textarea id="pdesc" placeholder="e.g. Scan a badge, exchange digital business cards, remember everyone you meet"></textarea>
+      <label>Product type</label><select id="ptype"></select>
+      <label>Geography</label><select id="geo"></select>
+    </div>
+    <div>
+      <label>Customer (market anchor)</label><select id="anchor"></select>
+      <div id="anchor-count-wrap" style="display:none"><label>Custom reachable count</label><input id="anchorCount" type="number" value="100000"></div>
+      <label>Marketing budget ($/mo)</label><input id="budget" type="number" value="3000">
+    </div>
+    <div>
+      <label>Existing customers</label><input id="existing" type="number" value="0">
+      <label>Cash available ($)</label><input id="cash" type="number" value="10000">
+      <label>Channels</label>
+      <div class="chips" id="channel-chips"></div>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+  <div id="rail">
+    <div class="rail-h">AGENTS</div>
+    <div id="agents"></div>
+  </div>
+
+  <div id="stream-wrap">
+    <div id="stream">
+      <div id="stream-empty">AGENT ACTIVITY STREAM
+All orchestration, data pulls and model inferences appear here live.
+Fill in a product (Inputs drawer), then hit "Deploy agents".
+
+Data sources: live web pulls (Hacker News now; Reddit, LinkedIn, Instagram,
+G2 reviews and Google Trends via Apify once the token lands) + cited public
+benchmarks + live LLM consumer agents. Nothing is hidden.</div>
+    </div>
+  </div>
+
+  <div id="results">
+    <div class="tabs">
+      <div class="tab on" data-p="signals">SIGNALS</div>
+      <div class="tab" data-p="panel">CONSUMERS</div>
+      <div class="tab" data-p="strategy">STRATEGY</div>
+      <div class="tab" data-p="baseline">BASELINE</div>
+    </div>
+    <div id="panels">
+      <div class="panel on" id="p-signals">
+        <div class="card"><h3>Market signals</h3><p class="note">Live community data, summarized by the social-listening agent. Appears after a run.</p></div>
+      </div>
+      <div class="panel" id="p-panel">
+        <div class="card"><h3>Consumer panel simulation</h3><p class="note">48 AI consumers with personas, budgets and memory; every purchase/churn/recommend decision is a live model inference. Appears after a run.</p></div>
+      </div>
+      <div class="panel" id="p-strategy">
+        <div class="card"><h3>Strategy</h3><p class="note">Synthesized from the quant baseline, the consumer panel and live market signals. Appears after a run.</p></div>
+      </div>
+      <div class="panel" id="p-baseline">
+        <div class="card"><h3>Benchmark baseline</h3><p class="note">Deterministic Monte Carlo from cited public benchmarks - no AI agents. Appears after a run.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="benchmarks.js"></script>
+<script src="engine.js"></script>
+<script src="sim.js"></script>
+<script src="orchestrator.js"></script>
+<script src="agents.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
