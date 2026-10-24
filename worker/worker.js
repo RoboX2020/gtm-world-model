@@ -55,7 +55,7 @@ async function callGemini(env, system, userText, maxTokens = 4096) {
   const attempts = [
     { model: 'gemini-2.5-flash', waitMs: 0 },
     { model: 'gemini-2.5-flash', waitMs: 4000 },       // one retry: free-tier RPM windows are short
-    { model: 'gemini-2.5-flash-lite', waitMs: 1500 }   // separate, larger free quota
+    { model: 'gemini-3.1-flash-lite', waitMs: 1500 }   // separate, larger free quota
   ];
   let lastErr = null;
   for (const { model, waitMs } of attempts) {
@@ -88,6 +88,49 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === '/api/health') return json({ ok: true, service: 'gtm-world-model', time: new Date().toISOString() });
+    /* Bright Data Web Scraper API proxy - key server-side only (env.BRIGHTDATA_API_KEY).
+       Modes: {mode:'scrape', dataset_id, input[]}  -> sync POST /datasets/v3/scrape
+              {mode:'trigger', dataset_id, input[]} -> async POST /datasets/v3/trigger -> snapshot_id
+              {mode:'snapshot', snapshot_id}        -> GET /datasets/v3/snapshot/{id}?format=json */
+    if (url.pathname === '/api/brightdata' && request.method === 'POST') {
+      const ipB = request.headers.get('CF-Connecting-IP') || 'anon';
+      if (!rateOk(ipB)) return json({ error: 'rate limited - try again in an hour' }, 429);
+      if (!env.BRIGHTDATA_API_KEY) return json({ error: 'bright data key not configured yet - integration pending activation' }, 501);
+      let bb;
+      try {
+        const len = +(request.headers.get('Content-Length') || 0);
+        if (len > MAX_BODY) return json({ error: 'body too large' }, 413);
+        bb = await request.json();
+      } catch { return json({ error: 'invalid json' }, 400); }
+      const mode = bb && bb.mode;
+      const H = { 'Authorization': 'Bearer ' + env.BRIGHTDATA_API_KEY, 'Content-Type': 'application/json' };
+      try {
+        if (mode === 'scrape' || mode === 'trigger') {
+          const ds = String(bb.dataset_id || '');
+          if (!/^gd_[a-z0-9]+$/i.test(ds)) return json({ error: 'bad dataset_id' }, 400);
+          const input = Array.isArray(bb.input) ? bb.input.slice(0, 10) : null;
+          if (!input || !input.length) return json({ error: 'need input[] (max 10)' }, 400);
+          const path = mode === 'scrape' ? 'scrape?notify=false&include_errors=true' : 'trigger?include_errors=true';
+          const res = await fetch('https://api.brightdata.com/datasets/v3/' + path + '&dataset_id=' + ds,
+            { method: 'POST', headers: H, body: JSON.stringify(mode === 'scrape' ? { input: input } : input) });
+          const text = await res.text();
+          if (!res.ok) return json({ error: 'brightdata http ' + res.status + ': ' + text.slice(0, 300) }, 502);
+          try { return json({ result: JSON.parse(text) }); } catch { return json({ result: text.slice(0, 20000) }); }
+        }
+        if (mode === 'snapshot') {
+          const snap = String(bb.snapshot_id || '');
+          if (!/^[a-z0-9_]+$/i.test(snap)) return json({ error: 'bad snapshot_id' }, 400);
+          const res = await fetch('https://api.brightdata.com/datasets/v3/snapshot/' + snap + '?format=json', { headers: H });
+          if (res.status === 202) return json({ pending: true });
+          const text = await res.text();
+          if (!res.ok) return json({ error: 'brightdata http ' + res.status + ': ' + text.slice(0, 300) }, 502);
+          try { return json({ result: JSON.parse(text) }); } catch { return json({ result: text.slice(0, 20000) }); }
+        }
+        return json({ error: 'mode must be scrape|trigger|snapshot' }, 400);
+      } catch (e) {
+        return json({ error: 'brightdata pull failed: ' + (e.message || 'unknown') }, 502);
+      }
+    }
     if (url.pathname === '/api/research' && request.method === 'POST') {
       const ipR = request.headers.get('CF-Connecting-IP') || 'anon';
       if (!rateOk(ipR)) return json({ error: 'rate limited - try again in an hour' }, 429);

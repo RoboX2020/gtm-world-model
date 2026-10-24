@@ -209,5 +209,70 @@
     });
   }
 
-  root.Agents = { plan: plan, socialListening: socialListening, quantAnalyst: quantAnalyst, consumerPanel: consumerPanel, strategist: strategist };
+  /* ---- BRIGHT DATA AGENTS (Reddit / G2 reviews / Trends / LinkedIn) ----
+     Dataset IDs pending confirmation from the sponsor agent's Bright Data docs testing.
+     LinkedIn confirmed: gd_l1viktl72bvl7bjuj0 (sync scrape, {input:[{url}]}). */
+  var BD_DATASETS = {
+    'reddit-agent': null,          // reddit posts by keyword - ID pending
+    'g2-agent': null,              // G2 product reviews - ID pending
+    'trends-agent': null,          // Google Trends - ID pending
+    'linkedin-agent': 'gd_l1viktl72bvl7bjuj0'  // LinkedIn (confirmed; needs profile/company URLs)
+  };
+
+  function bdCall(body) { return post('/api/brightdata', body); }
+
+  /* generic async dataset run: trigger -> poll snapshot -> summarize */
+  function brightDataAgent(orch, agentId, input, buildInput, summarizeSys, renderLabel) {
+    var ds = BD_DATASETS[agentId];
+    if (!ds) {
+      orch.pending(agentId, orch.agents[agentId].name + ': dataset ID pending from Bright Data docs - arrives with the key');
+      return Promise.resolve(null);
+    }
+    orch.start(agentId, orch.agents[agentId].name + ' pulling real data via Bright Data (' + renderLabel + ')');
+    var items;
+    return Promise.resolve().then(buildInput).then(function (bdInput) {
+      if (!bdInput) { orch.pending(agentId, orch.agents[agentId].name + ': skipped (no usable input this run)'); return null; }
+      return bdCall({ mode: 'trigger', dataset_id: ds, input: bdInput }).then(function (r) {
+        var snap = r.result && r.result.snapshot_id;
+        if (!snap) throw new Error('no snapshot_id returned');
+        orch.log(agentId, 'Bright Data job started (snapshot ' + snap + '), polling...');
+        var tries = 0;
+        function poll() {
+          if (++tries > 18) throw new Error('snapshot timed out');
+          return new Promise(function (res) { setTimeout(res, 5000); }).then(function () {
+            return bdCall({ mode: 'snapshot', snapshot_id: snap });
+          }).then(function (s) {
+            if (s.pending) return poll();
+            return s.result;
+          });
+        }
+        return poll();
+      }).then(function (rows) {
+        items = Array.isArray(rows) ? rows.slice(0, 25) : [];
+        orch.log(agentId, items.length + ' real records pulled - summarizing with Gemini...');
+        return post('/api/agent-step', {
+          system: summarizeSys,
+          user: 'Product: ' + input.productName + ' - ' + (input.description || '') + '\nPrice: $' + input.price + '/mo\nReal records:\n' + JSON.stringify(items).slice(0, 24000),
+          maxOutputTokens: 2048
+        });
+      }).then(function (j) {
+        var sig = j.result;
+        sig.sourcesUsed = ['Bright Data ' + renderLabel + ' (live)'];
+        orch.done(agentId, orch.agents[agentId].name + ' done: ' + items.length + ' real records analyzed', sig);
+        return sig;
+      });
+    }).catch(function (e) {
+      var msg = e.message || 'unknown';
+      if (/501|not configured|activation/i.test(msg)) {
+        orch.pending(agentId, orch.agents[agentId].name + ': waiting on Bright Data activation (one-time account step, approval pending)');
+      } else {
+        orch.fail(agentId, orch.agents[agentId].name + ' failed: ' + msg);
+      }
+      return null;
+    });
+  }
+
+  root.Agents = { plan: plan, socialListening: socialListening, quantAnalyst: quantAnalyst,
+                  consumerPanel: consumerPanel, strategist: strategist,
+                  brightDataAgent: brightDataAgent, BD_DATASETS: BD_DATASETS };
 })(typeof self !== 'undefined' ? self : this);

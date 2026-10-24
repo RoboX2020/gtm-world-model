@@ -269,7 +269,7 @@
     orch = new Orchestrator(function (evt) { addLine(evt); renderRail(); });
     AGENT_DEFS.forEach(function (d) { orch.register(d[0], d[1], d[2]); });
     ['reddit-agent', 'linkedin-agent', 'g2-agent', 'trends-agent'].forEach(function (id) {
-      orch.pending(id, orch.agents[id].name + ': Bright Data integration queued next ($300 credit confirmed)');
+      orch.pending(id, orch.agents[id].name + ': Bright Data queued (key vault delivery + one-time activation pending)');
     });
     renderRail();
 
