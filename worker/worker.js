@@ -10,7 +10,7 @@ const CORS = {
   'Access-Control-Max-Age': '86400'
 };
 const MAX_BODY = 64 * 1024;
-const RATE_LIMIT = 20;          // requests per IP per hour (best effort, per isolate)
+const RATE_LIMIT = 40;          // requests per IP per hour (best effort, per isolate)
 const buckets = new Map();
 
 function rateOk(ip) {
@@ -29,6 +29,11 @@ function json(obj, status = 200) {
 const SYSTEM = `You are a go-to-market strategist inside a quantitative GTM engine.
 You receive: (1) a product description, (2) market sizing, unit economics and a Monte Carlo
 simulation computed deterministically from cited public benchmarks.
+If computed.agentSim is present, it holds results from a live LLM-agent consumer simulation:
+48 consumer agents with personas, budgets and memory, 6 monthly decision rounds, every
+purchase/churn/recommend decision a real model inference. Treat it as directional behavioral
+evidence (LLM panels skew optimistic) and reference its adoption, churn and willingness-to-pay
+numbers where relevant.
 Rules:
 - Use ONLY the numbers provided. Never invent statistics, market sizes or conversion rates.
 - When you reference a number, it must appear in the payload.
@@ -45,7 +50,7 @@ Respond with STRICT JSON only, this exact shape:
  "contrarian": string             // one non-obvious move, <=35 words
 }`;
 
-async function callGemini(env, payload) {
+async function callGemini(env, system, userText, maxTokens = 4096) {
   const attempts = [
     { model: 'gemini-2.5-flash', waitMs: 0 },
     { model: 'gemini-2.5-flash', waitMs: 4000 },       // one retry: free-tier RPM windows are short
@@ -61,9 +66,9 @@ async function callGemini(env, payload) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: SYSTEM }] },
-            contents: [{ role: 'user', parts: [{ text: JSON.stringify(payload) }] }],
-            generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } }
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: 'user', parts: [{ text: userText }] }],
+            generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } }
           })
         }
       );
@@ -71,8 +76,7 @@ async function callGemini(env, payload) {
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const parsed = JSON.parse(text);
-      if (!parsed.positioning || !Array.isArray(parsed.channels)) throw new Error('schema');
-      return { strategy: parsed, model };
+      return { result: parsed, model };
     } catch (e) { lastErr = e; }
   }
   throw lastErr || new Error('all models failed');
@@ -83,6 +87,27 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === '/api/health') return json({ ok: true, service: 'gtm-world-model', time: new Date().toISOString() });
+    if (url.pathname === '/api/agent-step' && request.method === 'POST') {
+      const ip0 = request.headers.get('CF-Connecting-IP') || 'anon';
+      if (!rateOk(ip0)) return json({ error: 'rate limited - try again in an hour' }, 429);
+      let body;
+      try {
+        const len = +(request.headers.get('Content-Length') || 0);
+        if (len > MAX_BODY) return json({ error: 'body too large' }, 413);
+        body = await request.json();
+      } catch { return json({ error: 'invalid json' }, 400); }
+      if (typeof body?.system !== 'string' || typeof body?.user !== 'string' ||
+          body.system.length > 8000 || body.user.length > 32000) {
+        return json({ error: 'need {system<=8k, user<=32k}' }, 400);
+      }
+      const maxTokens = Math.min(Math.max(+(body.maxOutputTokens || 8192), 512), 16384);
+      try {
+        const out = await callGemini(env, body.system, body.user, maxTokens);
+        return json(out);
+      } catch (e) {
+        return json({ error: 'agent step failed: ' + (e.message || 'unknown') }, 502);
+      }
+    }
     if (url.pathname !== '/api/strategy' || request.method !== 'POST') {
       return json({ error: 'not found' }, 404);
     }
@@ -98,8 +123,9 @@ export default {
       return json({ error: 'missing input/computed' }, 400);
     }
     try {
-      const out = await callGemini(env, payload);
-      return json(out);
+      const out = await callGemini(env, SYSTEM, JSON.stringify(payload));
+      if (!out.result?.positioning || !Array.isArray(out.result?.channels)) throw new Error('schema');
+      return json({ strategy: out.result, model: out.model });
     } catch (e) {
       return json({ error: 'strategy generation failed: ' + (e.message || 'unknown') }, 502);
     }

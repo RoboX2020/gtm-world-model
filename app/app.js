@@ -12,6 +12,7 @@
   };
   var money = function (n) { return n === null || n === undefined || isNaN(n) ? '-' : '$' + fmt(n); };
   var pct = function (p) { return Math.round(p * 100) + '%'; };
+  var esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
 
   // ---- populate selects ----
   var ptype = $('ptype'), geo = $('geo'), anchor = $('anchor'), chips = $('channel-chips');
@@ -165,8 +166,9 @@
     };
   }
 
-  function renderAI(el, s, isLocal) {
-    var h = '<span class="pill' + (isLocal ? ' local' : '') + '">' + (isLocal ? 'LOCAL STRATEGY - AI OFFLINE' : 'AI STRATEGY - GEMINI') + '</span>';
+  function renderAI(el, s, isLocal, withSim) {
+    var label = isLocal ? 'LOCAL STRATEGY - AI OFFLINE' : (withSim ? 'AI STRATEGY - GEMINI + AGENT SIM' : 'AI STRATEGY - GEMINI');
+    var h = '<span class="pill' + (isLocal ? ' local' : '') + '">' + label + '</span>';
     h += '<div class="ai-sec"><h3>Positioning</h3><p>' + s.positioning + '</p></div>';
     h += '<div class="ai-sec"><h3>Verdict</h3><p>' + s.verdict + '</p></div>';
     h += '<div class="ai-sec"><h3>Channel plays</h3>' + s.channels.map(function (c, i) {
@@ -208,7 +210,7 @@
     return R;
   }
 
-  function fetchStrategy(input, R) {
+  function fetchStrategy(input, R, sim) {
     $('ai-status').classList.remove('hidden');
     $('ai-body').classList.add('hidden');
     var payload = {
@@ -238,6 +240,17 @@
         })
       }
     };
+    if (sim) {
+      payload.computed.agentSim = {
+        method: '48 LLM consumer agents with personas/budgets/memory, 6 monthly decision rounds, every decision a live model inference',
+        agents: sim.panel, rounds: sim.rounds,
+        adoptionRateFinal: +sim.adoptionRate.toFixed(3),
+        customersFinal: sim.customersFinal,
+        medianWillingnessToPay: sim.wtpMedian,
+        monthlySeries: sim.series,
+        sampleAgentQuotes: sim.quotes.slice(0, 5).map(function (q) { return q.action + ': ' + q.why; })
+      };
+    }
     var ctrl = new AbortController();
     var to = setTimeout(function () { ctrl.abort(); }, 45000);
     fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: ctrl.signal })
@@ -247,13 +260,13 @@
         if (!j || !j.strategy) throw new Error('bad payload');
         $('ai-status').classList.add('hidden');
         $('ai-body').classList.remove('hidden');
-        renderAI($('ai-body'), j.strategy, false);
+        renderAI($('ai-body'), j.strategy, false, !!sim);
       })
       .catch(function () {
         clearTimeout(to);
         $('ai-status').classList.add('hidden');
         $('ai-body').classList.remove('hidden');
-        renderAI($('ai-body'), localStrategy(input, R), true);
+        renderAI($('ai-body'), localStrategy(input, R), true, !!sim);
       });
   }
 
@@ -271,6 +284,122 @@
     $('form-section').classList.remove('hidden');
     window.scrollTo(0, 0);
   };
+
+  // ---- deep consumer simulation (LLM agents via worker) ----
+  var lastSim = null;
+
+  function monthlyExposures(input) {
+    var budget = input.monthlyBudget, tw = 0, total = 0;
+    input.channels.forEach(function (k) { var c = BENCH.channels[k]; if (c) tw += c.weight; });
+    if (!tw) tw = 1;
+    input.channels.forEach(function (k) {
+      var c = BENCH.channels[k]; if (!c) return;
+      var spend = budget * (c.weight / tw);
+      if (c.kind === 'paid_impression') total += spend / c.cpm * 1000;
+      else if (c.kind === 'outbound') total += spend / c.costPer1kTouches * 1000;
+      else if (c.kind === 'organic_content') total += spend / c.costPerPiece * c.trafficPerPiece;
+    });
+    return total;
+  }
+
+  function simLog(msg) {
+    var el = $('sim-log');
+    el.innerHTML += '<div>' + esc(msg) + '</div>';
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function drawSimChart(canvas, series, panel) {
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height, padL = 40, padB = 24, padT = 12, padR = 10;
+    var maxY = Math.max(panel, 10);
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.strokeStyle = '#2A2A2A'; ctx.fillStyle = '#9C9C9C'; ctx.lineWidth = 1;
+    for (var g = 0; g <= 4; g++) {
+      var yv = maxY * g / 4, y = padT + (H - padB - padT) * (1 - g / 4);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+      ctx.fillText(Math.round(yv), 4, y + 4);
+    }
+    function X(i) { return padL + (W - padL - padR) * (i / Math.max(series.length - 1, 1)); }
+    function Y(v) { return padT + (H - padB - padT) * (1 - v / maxY); }
+    function line(key, color, width) {
+      ctx.beginPath();
+      series.forEach(function (r, i) { i ? ctx.lineTo(X(i), Y(r[key])) : ctx.moveTo(X(i), Y(r[key])); });
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+    }
+    if (series.length) {
+      line('aware', '#9C9C9C', 1.5);
+      line('customers', '#FF6B1A', 2.5);
+      series.forEach(function (r, i) {
+        ctx.beginPath(); ctx.arc(X(i), Y(r.customers), 3, 0, 7); ctx.fillStyle = '#FF6B1A'; ctx.fill();
+      });
+    }
+    ctx.fillStyle = '#9C9C9C';
+    ctx.fillText('month 1', padL, H - 6);
+    ctx.fillText('customers (orange) / aware (grey) of ' + panel + ' agents', padL + 70, H - 6);
+  }
+
+  function renderSimQuotes(quotes) {
+    var el = $('sim-quotes');
+    el.innerHTML = '<h3 style="margin-top:14px">What the agents said</h3>' + quotes.map(function (q) {
+      var tag = q.action === 'purchase' ? 'good' : (q.action === 'churn' ? 'warn' : '');
+      return '<p class="note" style="margin-top:6px"><span class="tag ' + tag + '">' + esc(q.action.toUpperCase()) + '</span> ' +
+        '<b>Agent #' + q.id + '</b>: "' + esc(q.why) + '"</p>';
+    }).join('');
+  }
+
+  function updateSimMetrics(series, panel, wtpMedian) {
+    var last = series[series.length - 1];
+    if (last) {
+      $('sim-adopt').textContent = Math.round(100 * last.customers / panel) + '%';
+      $('sim-adopt-d').textContent = last.customers + ' of ' + panel + ' agents; ' + last.recommended + ' recommending, ' + last.churned + ' churned in month ' + last.round;
+    }
+    $('sim-wtp').textContent = wtpMedian ? money(wtpMedian) : '-';
+    $('sim-wtp-d').textContent = wtpMedian ? 'across agents who bought or evaluated vs your ' + money(lastInput.price) + ' price' : 'no purchase intent surfaced';
+  }
+
+  function runDeepSim() {
+    if (!lastInput) return;
+    var btn = $('sim-btn');
+    btn.disabled = true; btn.textContent = 'Simulating - live model inferences running...';
+    $('sim-live').classList.remove('hidden');
+    $('sim-log').innerHTML = ''; $('sim-quotes').innerHTML = '';
+    $('sim-adopt').textContent = '-'; $('sim-wtp').textContent = '-';
+    $('sim-adopt-d').textContent = ''; $('sim-wtp-d').textContent = '';
+    var input = lastInput;
+    var segmentDesc = BENCH.anchors[input.anchorKey].label + ' in ' + BENCH.geo[input.geography].label +
+      ', target customers for a ' + BENCH.econ[input.productType].label + ' product' +
+      (input.description ? ': ' + input.description : '');
+    var seriesSoFar = [], panel = 48;
+    AgentSim.run({
+      product: { name: input.productName, description: input.description, category: BENCH.econ[input.productType].label },
+      segmentDesc: segmentDesc,
+      price: input.price,
+      monthlyExposures: monthlyExposures(input),
+      anchorCount: input.anchorCount,
+      existingCustomers: input.existingCustomers,
+      agents: 48, rounds: 6
+    }, function (evt) {
+      if (evt.type === 'log') simLog(evt.message);
+      else if (evt.type === 'round') {
+        seriesSoFar.push(evt.row);
+        drawSimChart($('sim-chart'), seriesSoFar, panel);
+        updateSimMetrics(seriesSoFar, panel, null);
+      }
+    }).then(function (res) {
+      lastSim = res;
+      drawSimChart($('sim-chart'), res.series, res.panel);
+      updateSimMetrics(res.series, res.panel, res.wtpMedian);
+      renderSimQuotes(res.quotes);
+      simLog('Done: ' + res.customersFinal + '/' + res.panel + ' agents are customers after ' + res.rounds + ' months. Rebuilding strategy with this evidence...');
+      btn.disabled = false; btn.textContent = 'Run again (about a minute, ~14 model calls)';
+      fetchStrategy(input, lastResults, res);
+    }).catch(function (e) {
+      simLog('Simulation failed: ' + (e.message || 'unknown error') + '. The Monte Carlo baseline above still stands.');
+      btn.disabled = false; btn.textContent = 'Retry deep simulation';
+    });
+  }
+  $('sim-btn').onclick = runDeepSim;
 
   // scenario sliders: recompute quant only (fast)
   function scenarioRecompute() {
