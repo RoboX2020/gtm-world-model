@@ -1,7 +1,15 @@
-// GTM World Model API - Cloudflare Worker.
-// Holds the Gemini key server-side; the browser sends product inputs + the
-// deterministic model's computed numbers, and gets back a JSON strategy that
-// is constrained to those numbers.
+// ============================================================================
+// worker.js - the tiny server-side gatekeeper for the AI strategy writing.
+//
+// Why this exists: the Gemini API key is a secret. If the browser called Gemini
+// directly, anyone could open dev tools and steal the key. So the browser sends
+// its computed numbers HERE (a Cloudflare Worker - a small script running on
+// Cloudflare's servers), this adds the secret key, calls Gemini, and returns
+// the written strategy. The key never touches the visitor's browser.
+// The browser sends product inputs + the deterministic model's computed numbers,
+// and gets back a JSON strategy that is constrained to those numbers - so the
+// AI can only narrate the math, not invent figures.
+// ============================================================================
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -9,15 +17,24 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400'
 };
+// Reject request bodies over 64 KB (abuse guard).
 const MAX_BODY = 64 * 1024;
 const RATE_LIMIT = 20;          // requests per IP per hour (best effort, per isolate)
 const buckets = new Map();
 
+// Simple per-IP rate limiter: remember how many requests each IP made in the
+// current hour; reset the counter when their hour window rolls over.
+// "Best effort, per isolate" means each Cloudflare server keeps its OWN count,
+// so the real limit is roughly 20 x number-of-servers - loose, but it stops
+// single-bot floods from burning the free Gemini quota.
 function rateOk(ip) {
   const now = Date.now();
   const b = buckets.get(ip) || { n: 0, t: now };
   if (now - b.t > 3600e3) { b.n = 0; b.t = now; }
   b.n += 1; buckets.set(ip, b);
+  // Emergency memory guard: if too many distinct IPs appear at once, wipe the
+  // table rather than grow it forever (a distributed flood still gets limited
+  // per isolate after this).
   if (buckets.size > 5000) buckets.clear();
   return b.n <= RATE_LIMIT;
 }

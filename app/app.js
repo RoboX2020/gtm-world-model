@@ -65,6 +65,10 @@
   }
 
   // ---- charts ----
+  // Draw the fan chart: three lines across the 12 simulated months - the
+  // pessimistic P10, median P50 and optimistic P90 outcomes from the Monte
+  // Carlo run - with the P10-P90 band shaded so the widening range of possible
+  // futures is visible at a glance.
   function drawFan(canvas, fan) {
     var ctx = canvas.getContext('2d');
     var W = canvas.width, H = canvas.height, padL = 46, padB = 26, padT = 12, padR = 10;
